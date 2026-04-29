@@ -109,6 +109,8 @@ export default function ProjectChatPage() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [usageOpen, setUsageOpen] = useState(false);
   const [usage, setUsage] = useState<UsageData | null>(null);
+  const [messageMode, setMessageMode] = useState<"single" | "team">("single");
+  const [isStreaming, setIsStreaming] = useState(false);
 
   const [roleProviders, setRoleProviders] = useState<RoleProviderMap>({
     reasoning: "google",
@@ -285,7 +287,7 @@ export default function ProjectChatPage() {
     await fetchRoleAssignments();
   }
 
-  async function handleSendMessage(e: React.FormEvent) {
+ async function handleSendMessage(e: React.FormEvent) {
   e.preventDefault();
 
   if (!input.trim()) return;
@@ -299,6 +301,7 @@ export default function ProjectChatPage() {
 
   const messageText = input;
   setInput("");
+  setIsStreaming(true);
 
   const tempUserMessage: ContextMessage = {
     id: `user-${Date.now()}`,
@@ -312,7 +315,12 @@ export default function ProjectChatPage() {
   const tempAssistantMessage: ContextMessage = {
     id: `assistant-${Date.now()}`,
     role: "assistant",
-    model: "streaming",
+    model:
+      messageMode === "team"
+        ? "team-mode"
+        : selectedRole === "auto"
+          ? "streaming"
+          : getProviderLabel(roleProviders[selectedRole]),
     content: "",
     tokens_used: 0,
     timestamp: new Date().toISOString(),
@@ -320,21 +328,104 @@ export default function ProjectChatPage() {
 
   setMessages((prev) => [...prev, tempUserMessage, tempAssistantMessage]);
 
-  const res = await fetch(`/api/projects/${projectId}/message/stream`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({
-      content: messageText,
-      selectedRole,
-    }),
-  });
+  try {
+    const endpoint =
+      messageMode === "team"
+        ? `/api/projects/${projectId}/message/team`
+        : `/api/projects/${projectId}/message/stream`;
 
-  if (!res.ok || !res.body) {
-    const errData = await res.json().catch(() => ({}));
-    alert(errData.error || "Failed to send message.");
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        content: messageText,
+        selectedRole,
+      }),
+    });
+
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      console.error("Send message failed:", errData);
+
+      alert(errData.error || "Failed to send message.");
+
+      setMessages((prev) =>
+        prev.filter(
+          (message) =>
+            message.id !== tempUserMessage.id &&
+            message.id !== tempAssistantMessage.id
+        )
+      );
+
+      return;
+    }
+
+    if (messageMode === "team") {
+      const data = await res.json();
+
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.id === tempAssistantMessage.id
+            ? {
+                ...message,
+                model: "team-mode",
+                content: data.assistantMessage?.content || "",
+              }
+            : message
+        )
+      );
+
+      await fetchProject();
+      return;
+    }
+
+    if (!res.body) {
+      alert("Streaming response was empty.");
+
+      setMessages((prev) =>
+        prev.filter(
+          (message) =>
+            message.id !== tempUserMessage.id &&
+            message.id !== tempAssistantMessage.id
+        )
+      );
+
+      return;
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let streamedText = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+
+      if (done) break;
+
+      const chunk = decoder.decode(value, { stream: true });
+      streamedText += chunk;
+
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.id === tempAssistantMessage.id
+            ? {
+                ...message,
+                content: streamedText,
+              }
+            : message
+        )
+      );
+    }
+
+    await fetchProject();
+  } catch (error) {
+    console.error("Message send error:", error);
+
+    alert("Failed to send message.");
+
     setMessages((prev) =>
       prev.filter(
         (message) =>
@@ -342,35 +433,10 @@ export default function ProjectChatPage() {
           message.id !== tempAssistantMessage.id
       )
     );
-    return;
+  } finally {
+    setIsStreaming(false);
+    await fetchUsage();
   }
-
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-
-  let streamedText = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-
-    if (done) break;
-
-    const chunk = decoder.decode(value, { stream: true });
-    streamedText += chunk;
-
-    setMessages((prev) =>
-      prev.map((message) =>
-        message.id === tempAssistantMessage.id
-          ? {
-              ...message,
-              content: streamedText,
-            }
-          : message
-      )
-    );
-  }
-
-  await fetchProject();
 }
 
   if (loading) {
@@ -563,6 +629,38 @@ export default function ProjectChatPage() {
                   <Send size={18} />
                 </button>
               </div>
+
+              <div className="mt-4 flex items-center justify-between rounded-xl border border-neutral-800 bg-neutral-950 p-2">
+  <div className="flex rounded-lg bg-black p-1">
+    <button
+      type="button"
+      onClick={() => setMessageMode("single")}
+      className={`rounded-md px-4 py-2 text-sm ${
+        messageMode === "single"
+          ? "bg-white text-black"
+          : "text-neutral-400 hover:text-white"
+      }`}
+    >
+      Single Model
+    </button>
+
+    <button
+      type="button"
+      onClick={() => setMessageMode("team")}
+      className={`rounded-md px-4 py-2 text-sm ${
+        messageMode === "team"
+          ? "bg-white text-black"
+          : "text-neutral-400 hover:text-white"
+      }`}
+    >
+      Team Mode Pro
+    </button>
+  </div>
+
+  <p className="text-xs text-neutral-500">
+    Team Mode uses reasoning → execution → review.
+  </p>
+</div>
 
               {usage?.connectedProviders?.length === 0 && (
                 <p className="mt-3 rounded-xl border border-yellow-800 bg-yellow-950/40 px-4 py-3 text-sm text-yellow-300">

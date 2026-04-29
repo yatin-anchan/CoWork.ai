@@ -30,9 +30,17 @@ function tryParseChart(content: string) {
   }
 }
 
+function cleanMessageContent(content: string) {
+  return content.replace(/<!--[\s\S]*?-->/g, "").trim();
+}
+
 export default function RichMessage({ content }: RichMessageProps) {
-  const chart = tryParseChart(content);
-  const markdownWithoutChart = content.replace(/```chart\s*[\s\S]*?```/, "");
+const cleanedContent = cleanMessageContent(content);
+const chart = tryParseChart(cleanedContent);
+const markdownWithoutChart = cleanedContent.replace(
+  /```chart\s*([\s\S]*?)```/,
+  ""
+);
 
   return (
     <div
@@ -47,7 +55,7 @@ export default function RichMessage({ content }: RichMessageProps) {
     >
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        skipHtml={false}
+        skipHtml={true}
         components={{
           // H1: ~2rem (32px) — maps to 30–50px range
           h1: ({ children }) => (

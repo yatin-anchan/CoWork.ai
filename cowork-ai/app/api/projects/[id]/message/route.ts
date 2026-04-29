@@ -59,7 +59,21 @@ export async function POST(req: NextRequest, context: RouteParams) {
     const workType =
       selectedRole === "auto" ? classifyMessage(content) : selectedRole;
 
-    const selectedModel = getDefaultModel(workType);
+    const roleAssignment = await sql`
+  SELECT provider
+  FROM role_assignments
+  WHERE user_id = ${user.userId}
+  AND role = ${workType}
+  LIMIT 1
+`;
+
+const selectedModel =
+  roleAssignment.length > 0
+    ? {
+        provider: roleAssignment[0].provider,
+        model: `${roleAssignment[0].provider}-default`,
+      }
+    : getDefaultModel(workType);
 
     const userMessage = await sql`
       INSERT INTO contexts (

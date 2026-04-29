@@ -496,11 +496,8 @@ export default function ProjectChatPage() {
 
         <section className="flex min-h-0 flex-1 flex-col overflow-hidden bg-black">
           <div className="shrink-0 border-b border-neutral-800 px-6 py-4">
-            <h2 className="text-base font-semibold">{project?.name}</h2>
-            <p className="text-xs text-neutral-500">
-              Choose a connected model below, then send a message.
-            </p>
-          </div>
+  <h2 className="text-base font-semibold">{project?.name}</h2>
+</div>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
             {messages.length === 0 ? (

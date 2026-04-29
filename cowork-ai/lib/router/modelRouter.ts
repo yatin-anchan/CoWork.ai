@@ -1,4 +1,4 @@
-export type WorkType = "search" | "execution" | "reviewing" | "reasoning";
+export type WorkType = "research" | "execution" | "reviewing" | "reasoning";
 
 export function classifyMessage(message: string): WorkType {
   const text = message.toLowerCase();
@@ -10,7 +10,7 @@ export function classifyMessage(message: string): WorkType {
     text.includes("research") ||
     text.includes("documentation")
   ) {
-    return "search";
+    return "research";
   }
 
   if (
@@ -38,7 +38,7 @@ export function classifyMessage(message: string): WorkType {
 
 export function getDefaultModel(workType: WorkType) {
   const defaults = {
-    search: {
+    research: {
       provider: "openrouter",
       model: "openrouter/free",
     },

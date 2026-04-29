@@ -19,10 +19,13 @@ type CallAIProviderArgs = {
   apiKey: string;
   model: string;
   messages: ChatMessage[];
+  workType: WorkType;
   customBaseUrl?: string | null;
 };
 
-const SYSTEM_PROMPT = `
+export type WorkType = "research" | "execution" | "reviewing" | "reasoning";
+
+const BASE_SYSTEM_PROMPT = `
 You are CoWork.ai, a unified multi-model AI workspace.
 
 You may be powered by different AI providers at different times, but you must behave as one continuous assistant with one shared memory.
@@ -30,9 +33,49 @@ You may be powered by different AI providers at different times, but you must be
 Use the full conversation history as your own memory.
 Do not say that you are a different model unless the user explicitly asks.
 Continue naturally from previous messages, even if another model produced them.
+
+Your response should feel like it comes from one consistent CoWork.ai assistant.
 `.trim();
 
-function normalizeMessages(messages: ChatMessage[]) {
+const ROLE_PROMPTS: Record<WorkType, string> = {
+  reasoning: `
+Current mode: Reasoning.
+
+Focus on planning, architecture, tradeoffs, technical decisions, and breaking complex tasks into clear steps.
+Be structured, skeptical, and precise.
+Do not jump into implementation unless the user asks.
+`.trim(),
+
+  research: `
+Current mode: Research.
+
+Focus on gathering, comparing, explaining, and organizing information.
+Clearly separate facts, assumptions, and recommendations.
+If web access is not available, say what information may need verification.
+`.trim(),
+
+  execution: `
+Current mode: Execution.
+
+Focus on producing usable outputs: code, commands, schemas, files, implementation steps, and concrete deliverables.
+Prefer complete working examples over vague explanations.
+Mention exact file paths when giving code.
+`.trim(),
+
+  reviewing: `
+Current mode: Reviewing.
+
+Focus on checking correctness, bugs, security issues, missing edge cases, UX problems, and architectural weaknesses.
+Be critical but constructive.
+Give fixes, not just criticism.
+`.trim(),
+};
+
+function buildSystemPrompt(workType: WorkType) {
+  return `${BASE_SYSTEM_PROMPT}\n\n${ROLE_PROMPTS[workType]}`;
+}
+
+function normalizeMessages(messages: ChatMessage[], workType: WorkType) {
   const cleaned = messages
     .filter((message) => message.content?.trim())
     .map((message) => ({
@@ -40,7 +83,7 @@ function normalizeMessages(messages: ChatMessage[]) {
       content: message.content.trim(),
     }));
 
-  return [{ role: "system" as const, content: SYSTEM_PROMPT }, ...cleaned];
+  return [{ role: "system" as const, content: buildSystemPrompt(workType) }, ...cleaned];
 }
 
 function mergeGeminiTurns(messages: ChatMessage[]) {
@@ -73,16 +116,18 @@ async function callGemini({
   apiKey,
   model,
   messages,
+  workType,
 }: {
   apiKey: string;
   model: string;
   messages: ChatMessage[];
+  workType: WorkType;
 }) {
   const genAI = new GoogleGenerativeAI(apiKey);
 
   const geminiModel = genAI.getGenerativeModel({
     model,
-    systemInstruction: SYSTEM_PROMPT,
+    systemInstruction: buildSystemPrompt(workType),
   });
 
   const normalized = mergeGeminiTurns(messages);
@@ -119,6 +164,7 @@ async function callOpenAICompatible({
   apiKey,
   model,
   messages,
+  workType,
   customBaseUrl,
 }: CallAIProviderArgs) {
   const baseUrl = getOpenAICompatibleBaseUrl(provider, customBaseUrl);
@@ -141,7 +187,7 @@ async function callOpenAICompatible({
     },
     body: JSON.stringify({
       model,
-      messages: normalizeMessages(messages),
+      messages: normalizeMessages(messages, workType),
       temperature: 0.7,
     }),
   });
@@ -168,10 +214,11 @@ async function callOpenAICompatible({
 export async function callAIProvider(args: CallAIProviderArgs) {
   if (args.provider === "google") {
     return callGemini({
-      apiKey: args.apiKey,
-      model: args.model,
-      messages: args.messages,
-    });
+  apiKey: args.apiKey,
+  model: args.model,
+  messages: args.messages,
+  workType: args.workType,
+});
   }
 
   if (args.provider === "anthropic") {

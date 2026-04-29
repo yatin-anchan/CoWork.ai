@@ -22,7 +22,7 @@ const messageSchema = z.object({
 function getDefaultProviderModel(provider: string, workType: WorkType) {
   if (provider === "google") return "gemini-2.0-flash";
   if (provider === "groq") return "llama-3.3-70b-versatile";
-  if (provider === "openrouter") return "google/gemini-2.0-flash-exp:free";
+  if (provider === "openrouter") return "openrouter/free";
   if (provider === "perplexity") return "sonar";
   if (provider === "openai") return "gpt-4o-mini";
   if (provider === "anthropic") return "anthropic/claude-3.5-haiku";
@@ -67,8 +67,18 @@ export async function POST(req: NextRequest, context: RouteParams) {
     const workType: WorkType =
       selectedRole === "auto" ? classifyMessage(content) : selectedRole;
 
-    const roleAssignment = await sql`
-      SELECT provider, custom_key_id
+    // Project-level override takes priority, then global, then default
+    const projectRoleAssignment = await sql`
+      SELECT provider
+      FROM project_role_assignments
+      WHERE project_id = ${projectId}
+      AND user_id = ${user.userId}
+      AND role = ${workType}
+      LIMIT 1
+    `;
+
+    const globalRoleAssignment = await sql`
+      SELECT provider
       FROM role_assignments
       WHERE user_id = ${user.userId}
       AND role = ${workType}
@@ -78,9 +88,11 @@ export async function POST(req: NextRequest, context: RouteParams) {
     const defaultModel = getDefaultModel(workType);
 
     const selectedProvider =
-      roleAssignment.length > 0
-        ? roleAssignment[0].provider
-        : defaultModel.provider;
+      projectRoleAssignment.length > 0
+        ? projectRoleAssignment[0].provider
+        : globalRoleAssignment.length > 0
+          ? globalRoleAssignment[0].provider
+          : defaultModel.provider;
 
     const keyRows = await sql`
       SELECT encrypted_key, model_config
@@ -126,19 +138,17 @@ export async function POST(req: NextRequest, context: RouteParams) {
 
     const messagesForProvider: ChatMessage[] = [
       ...sharedHistory,
-      {
-        role: "user",
-        content,
-      },
+      { role: "user", content },
     ];
 
     const assistantResponse = await callAIProvider({
-      provider: selectedProvider as AIProvider,
-      apiKey,
-      model: selectedModel,
-      customBaseUrl,
-      messages: messagesForProvider,
-    });
+  provider: selectedProvider as AIProvider,
+  apiKey,
+  model: selectedModel,
+  customBaseUrl,
+  messages: messagesForProvider,
+  workType,
+});
 
     const userMessage = await sql`
       INSERT INTO contexts (

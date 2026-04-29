@@ -141,9 +141,7 @@ export default function ProjectChatPage() {
     if (!token) return;
 
     const res = await fetch("/api/usage", {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
+      headers: { Authorization: `Bearer ${token}` },
     });
 
     if (!res.ok) return;
@@ -156,15 +154,13 @@ export default function ProjectChatPage() {
     const token = getToken();
     if (!token) return;
 
-    const res = await fetch("/api/models/roles", {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
+    const globalRes = await fetch("/api/models/roles", {
+      headers: { Authorization: `Bearer ${token}` },
     });
 
-    if (!res.ok) return;
-
-    const data = await res.json();
+    const projectRes = await fetch(`/api/projects/${projectId}/roles`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
 
     const nextProviders: RoleProviderMap = {
       reasoning: "google",
@@ -173,69 +169,81 @@ export default function ProjectChatPage() {
       reviewing: "google",
     };
 
-    data.roles?.forEach(
-      (item: { role: keyof RoleProviderMap; provider: string }) => {
-        if (item.role in nextProviders) {
-          nextProviders[item.role] = item.provider;
+    if (globalRes.ok) {
+      const globalData = await globalRes.json();
+      globalData.roles?.forEach(
+        (item: { role: keyof RoleProviderMap; provider: string }) => {
+          if (item.role in nextProviders) {
+            nextProviders[item.role] = item.provider;
+          }
         }
-      }
-    );
+      );
+    }
+
+    if (projectRes.ok) {
+      const projectData = await projectRes.json();
+      projectData.roles?.forEach(
+        (item: { role: keyof RoleProviderMap; provider: string }) => {
+          if (item.role in nextProviders) {
+            nextProviders[item.role] = item.provider;
+          }
+        }
+      );
+    }
 
     setRoleProviders(nextProviders);
   }
 
   async function fetchProject() {
-  const token = getToken();
+    const token = getToken();
 
-  if (!token) {
-    router.push("/auth/login");
-    return;
-  }
-
-  try {
-    const res = await fetch(`/api/projects/${projectId}`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-
-    if (res.status === 401) {
-      localStorage.removeItem("token");
+    if (!token) {
       router.push("/auth/login");
       return;
     }
 
-    if (res.status === 404) {
-      router.push("/dashboard");
-      return;
-    }
+    try {
+      const res = await fetch(`/api/projects/${projectId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
-    if (!res.ok) {
-      console.error(`fetchProject failed: ${res.status} ${res.statusText}`);
+      if (res.status === 401) {
+        localStorage.removeItem("token");
+        router.push("/auth/login");
+        return;
+      }
+
+      if (res.status === 404) {
+        router.push("/dashboard");
+        return;
+      }
+
+      if (!res.ok) {
+        console.error(`fetchProject failed: ${res.status} ${res.statusText}`);
+        setLoading(false);
+        return;
+      }
+
+      const text = await res.text();
+
+      if (!text) {
+        console.error("fetchProject: empty response body");
+        setLoading(false);
+        return;
+      }
+
+      const data = JSON.parse(text);
+
+      setProject(data.project);
+      setMessages(data.contexts || []);
+      await fetchRoleAssignments();
+      await fetchUsage();
+    } catch (err) {
+      console.error("fetchProject error:", err);
+    } finally {
       setLoading(false);
-      return;
     }
-
-    const text = await res.text();
-
-    if (!text) {
-      console.error("fetchProject: empty response body");
-      setLoading(false);
-      return;
-    }
-
-    const data = JSON.parse(text);
-
-    setProject(data.project);
-    setMessages(data.contexts || []);
-    await fetchRoleAssignments();
-    await fetchUsage();
-  } catch (err) {
-    console.error("fetchProject error:", err);
-  } finally {
-    setLoading(false);
   }
-}
 
   useEffect(() => {
     fetchProject();
@@ -258,92 +266,91 @@ export default function ProjectChatPage() {
       [role]: provider,
     }));
 
-    await fetch("/api/models/roles", {
+    const res = await fetch(`/api/projects/${projectId}/roles`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({
-        role,
-        provider,
-      }),
+      body: JSON.stringify({ role, provider }),
     });
+
+    if (!res.ok) {
+      alert("Failed to update project model.");
+      return;
+    }
 
     await fetchRoleAssignments();
   }
 
   async function handleSendMessage(e: React.FormEvent) {
-  e.preventDefault();
+    e.preventDefault();
 
-  if (!input.trim()) return;
+    if (!input.trim()) return;
 
-  const token = getToken();
+    const token = getToken();
 
-  if (!token) {
-    router.push("/auth/login");
-    return;
-  }
-
-  const messageText = input.trim();
-  setInput("");
-
-  // Optimistically add user message to UI
-  const tempUserMessage: ContextMessage = {
-    id: `temp-${Date.now()}`,
-    role: "user",
-    model: null,
-    content: messageText,
-    tokens_used: 0,
-    timestamp: new Date().toISOString(),
-  };
-  setMessages((prev) => [...prev, tempUserMessage]);
-
-  try {
-    const res = await fetch(`/api/projects/${projectId}/message`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        content: messageText,
-        selectedRole,
-      }),
-    });
-
-    if (!res.ok) {
-      const errData = await res.json().catch(() => ({}));
-      console.error("Send message failed:", errData);
-      alert(errData.error || "Failed to send message.");
-      // Remove optimistic message on failure
-      setMessages((prev) => prev.filter((m) => m.id !== tempUserMessage.id));
+    if (!token) {
+      router.push("/auth/login");
       return;
     }
 
-    const data = await res.json();
+    const messageText = input.trim();
+    setInput("");
 
-    // Replace temp message + add assistant response
-    setMessages((prev) => [
-      ...prev.filter((m) => m.id !== tempUserMessage.id),
-      {
-        id: data.assistantMessage.id + "-user",
-        role: "user",
-        model: null,
-        content: messageText,
-        tokens_used: Math.ceil(messageText.length / 4),
-        timestamp: new Date().toISOString(),
-      },
-      data.assistantMessage,
-    ]);
+    const tempUserMessage: ContextMessage = {
+      id: `temp-${Date.now()}`,
+      role: "user",
+      model: null,
+      content: messageText,
+      tokens_used: 0,
+      timestamp: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, tempUserMessage]);
 
-    await fetchUsage();
-  } catch (err) {
-    console.error("handleSendMessage error:", err);
-    alert("Something went wrong. Please try again.");
-    setMessages((prev) => prev.filter((m) => m.id !== tempUserMessage.id));
+    try {
+      const res = await fetch(`/api/projects/${projectId}/message`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          content: messageText,
+          selectedRole,
+        }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        console.error("Send message failed:", errData);
+        alert(errData.error || "Failed to send message.");
+        setMessages((prev) => prev.filter((m) => m.id !== tempUserMessage.id));
+        return;
+      }
+
+      const data = await res.json();
+
+      setMessages((prev) => [
+        ...prev.filter((m) => m.id !== tempUserMessage.id),
+        {
+          id: data.userMessage.id,
+          role: "user",
+          model: null,
+          content: messageText,
+          tokens_used: Math.ceil(messageText.length / 4),
+          timestamp: new Date().toISOString(),
+        },
+        data.assistantMessage,
+      ]);
+
+      await fetchUsage();
+    } catch (err) {
+      console.error("handleSendMessage error:", err);
+      alert("Something went wrong. Please try again.");
+      setMessages((prev) => prev.filter((m) => m.id !== tempUserMessage.id));
+    }
   }
-}
 
   if (loading) {
     return (
@@ -362,7 +369,6 @@ export default function ProjectChatPage() {
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-black">
             <Bot size={21} />
           </div>
-
           <div>
             <h1 className="text-lg font-semibold tracking-tight">CoWork.ai</h1>
             <p className="text-xs text-neutral-500">Multi-AI workspace</p>
@@ -377,7 +383,6 @@ export default function ProjectChatPage() {
             <BarChart3 size={16} />
             Usage Analysis
           </button>
-
           <button
             onClick={() => router.push("/dashboard")}
             className="rounded-lg border border-neutral-800 px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-900"
@@ -395,7 +400,6 @@ export default function ProjectChatPage() {
           >
             {sidebarOpen ? <X size={22} /> : <Menu size={22} />}
           </button>
-
           <div className="space-y-4">
             <button
               onClick={() => router.push("/settings")}
@@ -403,7 +407,6 @@ export default function ProjectChatPage() {
             >
               <User size={22} />
             </button>
-
             <button
               onClick={() => router.push("/settings")}
               className="rounded-lg p-2 text-neutral-400 hover:bg-neutral-900 hover:text-white"
@@ -428,7 +431,6 @@ export default function ProjectChatPage() {
               <button className="w-full rounded-xl bg-white px-4 py-2.5 text-left text-sm font-medium text-black hover:bg-neutral-200">
                 + New Chat
               </button>
-
               <button
                 onClick={() => router.push("/dashboard")}
                 className="flex w-full items-center gap-2 rounded-xl px-4 py-2.5 text-left text-sm text-neutral-300 hover:bg-neutral-900"
@@ -436,18 +438,15 @@ export default function ProjectChatPage() {
                 <LayoutDashboard size={16} />
                 New Project
               </button>
-
               <button className="w-full rounded-xl px-4 py-2.5 text-left text-sm text-neutral-300 hover:bg-neutral-900">
                 History
               </button>
-
               <button
                 onClick={() => router.push("/api-manager")}
                 className="w-full rounded-xl px-4 py-2.5 text-left text-sm text-neutral-300 hover:bg-neutral-900"
               >
                 API Manager
               </button>
-
               <button
                 onClick={() => router.push("/settings")}
                 className="w-full rounded-xl px-4 py-2.5 text-left text-sm text-neutral-300 hover:bg-neutral-900"
@@ -512,7 +511,6 @@ export default function ProjectChatPage() {
                     <p className="whitespace-pre-wrap text-sm leading-6">
                       {message.content}
                     </p>
-
                     {message.model && (
                       <p className="mt-2 text-xs text-neutral-500">
                         Model: {message.model}
@@ -536,14 +534,12 @@ export default function ProjectChatPage() {
                 >
                   <Plus size={22} />
                 </button>
-
                 <input
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   placeholder="Message CoWork.ai..."
                   className="flex-1 bg-transparent text-sm text-white outline-none placeholder:text-neutral-600"
                 />
-
                 <button
                   type="submit"
                   className="ml-3 rounded-xl bg-white p-2 text-black hover:bg-neutral-200"
@@ -587,11 +583,8 @@ export default function ProjectChatPage() {
                       <div className="relative mr-2 flex items-center">
                         <ChevronDown
                           size={15}
-                          className={
-                            active ? "text-black" : "text-neutral-500"
-                          }
+                          className={active ? "text-black" : "text-neutral-500"}
                         />
-
                         <select
                           value={roleProviders[role.value]}
                           onChange={(e) =>
@@ -602,10 +595,7 @@ export default function ProjectChatPage() {
                           className="absolute inset-0 cursor-pointer opacity-0 disabled:cursor-not-allowed"
                         >
                           {connectedOptions.map((provider) => (
-                            <option
-                              key={provider.value}
-                              value={provider.value}
-                            >
+                            <option key={provider.value} value={provider.value}>
                               {provider.label}
                             </option>
                           ))}
@@ -643,7 +633,6 @@ export default function ProjectChatPage() {
                   Token usage across connected models.
                 </p>
               </div>
-
               <button
                 onClick={() => setUsageOpen(false)}
                 className="rounded-lg border border-neutral-800 px-3 py-2 text-sm hover:bg-neutral-900"
@@ -664,7 +653,6 @@ export default function ProjectChatPage() {
 
             <div className="mt-6 rounded-2xl border border-neutral-800 bg-black p-5">
               <h3 className="font-semibold">Connected Model Limits</h3>
-
               {!usage?.providerUsage?.length ? (
                 <p className="mt-3 text-sm text-yellow-400">
                   No connected API keys. Connect providers in API Manager.
@@ -676,7 +664,6 @@ export default function ProjectChatPage() {
                       item.limit > 0
                         ? Math.min((item.usedToday / item.limit) * 100, 100)
                         : 0;
-
                     return (
                       <div key={item.provider}>
                         <div className="mb-1 flex justify-between text-sm">
@@ -685,14 +672,12 @@ export default function ProjectChatPage() {
                             {item.usedToday} / {item.limit}
                           </span>
                         </div>
-
                         <div className="h-2 rounded-full bg-neutral-800">
                           <div
                             className="h-2 rounded-full bg-white"
                             style={{ width: `${percentage}%` }}
                           />
                         </div>
-
                         <p className="mt-1 text-xs text-neutral-500">
                           Remaining: {item.remaining}
                         </p>
@@ -705,7 +690,6 @@ export default function ProjectChatPage() {
 
             <div className="mt-6 rounded-2xl border border-neutral-800 bg-black p-5">
               <h3 className="font-semibold">Usage by Model Today</h3>
-
               {!usage?.usageByModel?.length ? (
                 <p className="mt-3 text-sm text-neutral-500">No usage yet.</p>
               ) : (
@@ -727,7 +711,6 @@ export default function ProjectChatPage() {
 
             <div className="mt-6 rounded-2xl border border-neutral-800 bg-black p-5">
               <h3 className="font-semibold">Last 3 Days</h3>
-
               {!usage?.usageByDay?.length ? (
                 <p className="mt-3 text-sm text-neutral-500">
                   No historical usage yet.
@@ -739,21 +722,20 @@ export default function ProjectChatPage() {
                       ...usage.usageByDay.map((day) => day.tokens_used),
                       1
                     );
-
                     const width = Math.min(
                       (item.tokens_used / max) * 100,
                       100
                     );
-
                     return (
                       <div key={item.date}>
                         <div className="mb-1 flex justify-between text-sm">
-                          <span>{new Date(item.date).toLocaleDateString()}</span>
+                          <span>
+                            {new Date(item.date).toLocaleDateString()}
+                          </span>
                           <span className="text-neutral-500">
                             {item.tokens_used}
                           </span>
                         </div>
-
                         <div className="h-2 rounded-full bg-neutral-800">
                           <div
                             className="h-2 rounded-full bg-white"

@@ -8,40 +8,134 @@ type User = {
   email: string;
 };
 
+type Project = {
+  id: string;
+  name: string;
+  description: string | null;
+  status: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export default function DashboardPage() {
   const router = useRouter();
 
   const [user, setUser] = useState<User | null>(null);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+
   const [loading, setLoading] = useState(true);
+  const [projectLoading, setProjectLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  useEffect(() => {
-    async function fetchUser() {
-      const token = localStorage.getItem("token");
+  function getToken() {
+    return localStorage.getItem("token");
+  }
 
-      if (!token) {
-        router.push("/auth/login");
-        return;
-      }
+  async function fetchUserAndProjects() {
+    const token = getToken();
 
-      const res = await fetch("/api/me", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (!res.ok) {
-        localStorage.removeItem("token");
-        router.push("/auth/login");
-        return;
-      }
-
-      const data = await res.json();
-      setUser(data.user);
-      setLoading(false);
+    if (!token) {
+      router.push("/auth/login");
+      return;
     }
 
-    fetchUser();
-  }, [router]);
+    const userRes = await fetch("/api/me", {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!userRes.ok) {
+      localStorage.removeItem("token");
+      router.push("/auth/login");
+      return;
+    }
+
+    const userData = await userRes.json();
+    setUser(userData.user);
+
+    const projectRes = await fetch("/api/projects", {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    const projectData = await projectRes.json();
+    setProjects(projectData.projects || []);
+
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    fetchUserAndProjects();
+  }, []);
+
+  async function handleCreateProject(e: React.FormEvent) {
+    e.preventDefault();
+
+    const token = getToken();
+
+    if (!token) {
+      router.push("/auth/login");
+      return;
+    }
+
+    setProjectLoading(true);
+    setError("");
+
+    try {
+      const res = await fetch("/api/projects", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          name,
+          description,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to create project");
+      }
+
+      setName("");
+      setDescription("");
+
+      await fetchUserAndProjects();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setProjectLoading(false);
+    }
+  }
+
+  async function handleDeleteProject(projectId: string) {
+    const token = getToken();
+
+    if (!token) {
+      router.push("/auth/login");
+      return;
+    }
+
+    const confirmed = confirm("Delete this project? This cannot be undone.");
+
+    if (!confirmed) return;
+
+    await fetch(`/api/projects/${projectId}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    await fetchUserAndProjects();
+  }
 
   function handleLogout() {
     localStorage.removeItem("token");
@@ -50,8 +144,8 @@ export default function DashboardPage() {
 
   if (loading) {
     return (
-      <main className="flex min-h-screen items-center justify-center">
-        <p>Loading dashboard...</p>
+      <main className="flex min-h-screen items-center justify-center bg-neutral-950 text-white">
+        Loading dashboard...
       </main>
     );
   }
@@ -65,6 +159,13 @@ export default function DashboardPage() {
           <span className="text-sm text-neutral-400">{user?.email}</span>
 
           <button
+            onClick={() => router.push("/api-manager")}
+            className="rounded-lg border border-neutral-700 px-4 py-2 text-sm hover:bg-neutral-900"
+          >
+            API Manager
+          </button>
+
+          <button
             onClick={handleLogout}
             className="rounded-lg border border-neutral-700 px-4 py-2 text-sm hover:bg-neutral-900"
           >
@@ -73,51 +174,86 @@ export default function DashboardPage() {
         </div>
       </nav>
 
-      <section className="px-8 py-10">
+      <section className="mx-auto max-w-5xl px-8 py-10">
         <div className="mb-8">
-          <h2 className="text-3xl font-bold">Welcome back</h2>
+          <h2 className="text-3xl font-bold">Your Projects</h2>
           <p className="mt-2 text-neutral-400">
-            Manage your AI projects, API keys, and model workflow.
+            Create AI workspaces with persistent conversation memory.
           </p>
         </div>
 
-        <div className="grid gap-6 md:grid-cols-3">
-          <button
-            onClick={() => router.push("/api-manager")}
-            className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6 text-left hover:bg-neutral-800"
-          >
-            <h3 className="text-xl font-semibold">API Manager</h3>
-            <p className="mt-2 text-sm text-neutral-400">
-              Connect Gemini, Groq, OpenRouter, or custom models.
-            </p>
-          </button>
+        <form
+          onSubmit={handleCreateProject}
+          className="mb-10 space-y-4 rounded-2xl border border-neutral-800 bg-neutral-900 p-6"
+        >
+          <h3 className="text-xl font-semibold">Create New Project</h3>
+
+          {error && <p className="text-sm text-red-400">{error}</p>}
+
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Project name"
+            className="w-full rounded-lg border border-neutral-700 bg-neutral-950 p-3 text-white"
+          />
+
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Project description"
+            className="min-h-24 w-full rounded-lg border border-neutral-700 bg-neutral-950 p-3 text-white"
+          />
 
           <button
-            onClick={() => router.push("/project/new")}
-            className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6 text-left hover:bg-neutral-800"
+            type="submit"
+            disabled={projectLoading}
+            className="rounded-lg bg-white px-5 py-3 font-medium text-black hover:bg-neutral-200 disabled:opacity-60"
           >
-            <h3 className="text-xl font-semibold">New Project</h3>
-            <p className="mt-2 text-sm text-neutral-400">
-              Start a new AI workspace with shared context.
-            </p>
+            {projectLoading ? "Creating..." : "Create Project"}
           </button>
+        </form>
 
-          <button
-            onClick={() => router.push("/settings")}
-            className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6 text-left hover:bg-neutral-800"
-          >
-            <h3 className="text-xl font-semibold">Settings</h3>
-            <p className="mt-2 text-sm text-neutral-400">
-              Manage your account and preferences.
-            </p>
-          </button>
-        </div>
+        <div className="grid gap-4">
+          {projects.length === 0 ? (
+            <div className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6 text-neutral-400">
+              No projects yet. Create your first project above.
+            </div>
+          ) : (
+            projects.map((project) => (
+              <div
+                key={project.id}
+                className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6"
+              >
+                <div className="flex items-start justify-between gap-6">
+                  <div>
+                    <h3 className="text-xl font-semibold">{project.name}</h3>
+                    <p className="mt-2 text-neutral-400">
+                      {project.description || "No description"}
+                    </p>
+                    <p className="mt-3 text-sm text-neutral-500">
+                      Updated: {new Date(project.updated_at).toLocaleString()}
+                    </p>
+                  </div>
 
-        <div className="mt-10 rounded-2xl border border-neutral-800 bg-neutral-900 p-6">
-          <h3 className="text-xl font-semibold">Projects</h3>
-          <p className="mt-2 text-neutral-400">
-            No projects yet. Create your first project to begin.
-          </p>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => router.push(`/project/${project.id}`)}
+                      className="rounded-lg bg-white px-4 py-2 text-sm font-medium text-black hover:bg-neutral-200"
+                    >
+                      Open
+                    </button>
+
+                    <button
+                      onClick={() => handleDeleteProject(project.id)}
+                      className="rounded-lg border border-red-900 px-4 py-2 text-sm text-red-300 hover:bg-red-950"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </section>
     </main>

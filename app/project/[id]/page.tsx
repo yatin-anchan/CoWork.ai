@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
+  BarChart3,
   Bot,
   Brain,
   ChevronDown,
@@ -50,6 +51,29 @@ type RoleProviderMap = {
   reviewing: string;
 };
 
+type UsageData = {
+  totalTokensToday: number;
+  mostUsedModel: string | null;
+  usageByModel: {
+    model: string;
+    tokens_used: number;
+  }[];
+  usageByDay: {
+    date: string;
+    tokens_used: number;
+  }[];
+  connectedProviders: {
+    provider: string;
+    status: string;
+  }[];
+  providerUsage: {
+    provider: string;
+    limit: number;
+    usedToday: number;
+    remaining: number;
+  }[];
+};
+
 const providerOptions = [
   { value: "google", label: "Gemini" },
   { value: "groq", label: "Groq" },
@@ -61,29 +85,12 @@ const providerOptions = [
 
 const roleButtons: {
   value: keyof RoleProviderMap;
-  fallbackLabel: string;
   icon: React.ReactNode;
 }[] = [
-  {
-    value: "reasoning",
-    fallbackLabel: "Gemini",
-    icon: <Brain size={17} />,
-  },
-  {
-    value: "research",
-    fallbackLabel: "Perplexity",
-    icon: <FileSearch size={17} />,
-  },
-  {
-    value: "execution",
-    fallbackLabel: "Groq",
-    icon: <Code2 size={17} />,
-  },
-  {
-    value: "reviewing",
-    fallbackLabel: "Gemini",
-    icon: <ShieldCheck size={17} />,
-  },
+  { value: "reasoning", icon: <Brain size={17} /> },
+  { value: "research", icon: <FileSearch size={17} /> },
+  { value: "execution", icon: <Code2 size={17} /> },
+  { value: "reviewing", icon: <ShieldCheck size={17} /> },
 ];
 
 export default function ProjectChatPage() {
@@ -98,6 +105,8 @@ export default function ProjectChatPage() {
   const [selectedRole, setSelectedRole] = useState<SelectedRole>("reasoning");
   const [loading, setLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [usageOpen, setUsageOpen] = useState(false);
+  const [usage, setUsage] = useState<UsageData | null>(null);
 
   const [roleProviders, setRoleProviders] = useState<RoleProviderMap>({
     reasoning: "google",
@@ -117,9 +126,34 @@ export default function ProjectChatPage() {
     );
   }
 
+  function getConnectedProviderOptions() {
+    if (!usage?.connectedProviders?.length) return [];
+
+    return providerOptions.filter((provider) =>
+      usage.connectedProviders.some(
+        (connected) => connected.provider === provider.value
+      )
+    );
+  }
+
+  async function fetchUsage() {
+    const token = getToken();
+    if (!token) return;
+
+    const res = await fetch("/api/usage", {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!res.ok) return;
+
+    const data = await res.json();
+    setUsage(data);
+  }
+
   async function fetchRoleAssignments() {
     const token = getToken();
-
     if (!token) return;
 
     const res = await fetch("/api/models/roles", {
@@ -180,6 +214,7 @@ export default function ProjectChatPage() {
     setProject(data.project);
     setMessages(data.contexts || []);
     await fetchRoleAssignments();
+    await fetchUsage();
     setLoading(false);
   }
 
@@ -215,6 +250,8 @@ export default function ProjectChatPage() {
         provider,
       }),
     });
+
+    await fetchRoleAssignments();
   }
 
   async function handleSendMessage(e: React.FormEvent) {
@@ -260,6 +297,8 @@ export default function ProjectChatPage() {
     );
   }
 
+  const connectedOptions = getConnectedProviderOptions();
+
   return (
     <main className="flex h-screen flex-col overflow-hidden bg-black text-white">
       <header className="flex h-16 shrink-0 items-center justify-between border-b border-neutral-800 bg-black px-5">
@@ -274,12 +313,22 @@ export default function ProjectChatPage() {
           </div>
         </div>
 
-        <button
-          onClick={() => router.push("/dashboard")}
-          className="rounded-lg border border-neutral-800 px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-900"
-        >
-          Dashboard
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setUsageOpen(true)}
+            className="flex items-center gap-2 rounded-lg border border-neutral-800 px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-900"
+          >
+            <BarChart3 size={16} />
+            Usage Analysis
+          </button>
+
+          <button
+            onClick={() => router.push("/dashboard")}
+            className="rounded-lg border border-neutral-800 px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-900"
+          >
+            Dashboard
+          </button>
+        </div>
       </header>
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -353,8 +402,12 @@ export default function ProjectChatPage() {
 
             <div className="mt-8 rounded-2xl border border-neutral-800 bg-black p-4 text-sm">
               <p className="font-medium text-white">Token Usage</p>
-              <p className="mt-2 text-neutral-500">Used: 0</p>
-              <p className="text-neutral-500">Remaining: Not tracked yet</p>
+              <p className="mt-2 text-neutral-500">
+                Used today: {usage?.totalTokensToday ?? 0}
+              </p>
+              <p className="text-neutral-500">
+                Most used: {usage?.mostUsedModel || "None"}
+              </p>
               <p className="text-neutral-500">
                 Active:{" "}
                 {selectedRole === "auto"
@@ -369,7 +422,7 @@ export default function ProjectChatPage() {
           <div className="shrink-0 border-b border-neutral-800 px-6 py-4">
             <h2 className="text-base font-semibold">{project?.name}</h2>
             <p className="text-xs text-neutral-500">
-              Choose a role/model below, then send a message.
+              Choose a connected model below, then send a message.
             </p>
           </div>
 
@@ -384,8 +437,8 @@ export default function ProjectChatPage() {
                     Start with a selected model
                   </p>
                   <p className="mt-2 text-sm text-neutral-500">
-                    Use the model row below to switch reasoning, research,
-                    execution, or reviewing without opening API Manager.
+                    Use the bottom model row to switch providers without opening
+                    API Manager.
                   </p>
                 </div>
               </div>
@@ -443,6 +496,13 @@ export default function ProjectChatPage() {
                 </button>
               </div>
 
+              {usage?.connectedProviders?.length === 0 && (
+                <p className="mt-3 rounded-xl border border-yellow-800 bg-yellow-950/40 px-4 py-3 text-sm text-yellow-300">
+                  No API keys connected. Go to API Manager to connect at least
+                  one model provider.
+                </p>
+              )}
+
               <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-5">
                 {roleButtons.map((role) => {
                   const active = selectedRole === role.value;
@@ -481,10 +541,11 @@ export default function ProjectChatPage() {
                           onChange={(e) =>
                             updateRoleProvider(role.value, e.target.value)
                           }
+                          disabled={connectedOptions.length === 0}
                           title={`Change ${role.value} model`}
-                          className="absolute inset-0 cursor-pointer opacity-0"
+                          className="absolute inset-0 cursor-pointer opacity-0 disabled:cursor-not-allowed"
                         >
-                          {providerOptions.map((provider) => (
+                          {connectedOptions.map((provider) => (
                             <option
                               key={provider.value}
                               value={provider.value}
@@ -515,6 +576,143 @@ export default function ProjectChatPage() {
           </form>
         </section>
       </div>
+
+      {usageOpen && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-black/60">
+          <aside className="h-full w-full max-w-md overflow-y-auto border-l border-neutral-800 bg-neutral-950 p-6 text-white shadow-2xl">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-semibold">Usage Analysis</h2>
+                <p className="text-sm text-neutral-500">
+                  Token usage across connected models.
+                </p>
+              </div>
+
+              <button
+                onClick={() => setUsageOpen(false)}
+                className="rounded-lg border border-neutral-800 px-3 py-2 text-sm hover:bg-neutral-900"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-6 rounded-2xl border border-neutral-800 bg-black p-5">
+              <p className="text-sm text-neutral-500">Total used today</p>
+              <p className="mt-2 text-3xl font-bold">
+                {usage?.totalTokensToday ?? 0}
+              </p>
+              <p className="mt-1 text-sm text-neutral-500">
+                Most used: {usage?.mostUsedModel || "None"}
+              </p>
+            </div>
+
+            <div className="mt-6 rounded-2xl border border-neutral-800 bg-black p-5">
+              <h3 className="font-semibold">Connected Model Limits</h3>
+
+              {!usage?.providerUsage?.length ? (
+                <p className="mt-3 text-sm text-yellow-400">
+                  No connected API keys. Connect providers in API Manager.
+                </p>
+              ) : (
+                <div className="mt-4 space-y-4">
+                  {usage.providerUsage.map((item) => {
+                    const percentage =
+                      item.limit > 0
+                        ? Math.min((item.usedToday / item.limit) * 100, 100)
+                        : 0;
+
+                    return (
+                      <div key={item.provider}>
+                        <div className="mb-1 flex justify-between text-sm">
+                          <span className="capitalize">{item.provider}</span>
+                          <span className="text-neutral-500">
+                            {item.usedToday} / {item.limit}
+                          </span>
+                        </div>
+
+                        <div className="h-2 rounded-full bg-neutral-800">
+                          <div
+                            className="h-2 rounded-full bg-white"
+                            style={{ width: `${percentage}%` }}
+                          />
+                        </div>
+
+                        <p className="mt-1 text-xs text-neutral-500">
+                          Remaining: {item.remaining}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-6 rounded-2xl border border-neutral-800 bg-black p-5">
+              <h3 className="font-semibold">Usage by Model Today</h3>
+
+              {!usage?.usageByModel?.length ? (
+                <p className="mt-3 text-sm text-neutral-500">No usage yet.</p>
+              ) : (
+                <div className="mt-4 space-y-3">
+                  {usage.usageByModel.map((item) => (
+                    <div
+                      key={item.model}
+                      className="flex justify-between rounded-xl border border-neutral-800 bg-neutral-950 px-4 py-3 text-sm"
+                    >
+                      <span>{item.model}</span>
+                      <span className="text-neutral-400">
+                        {item.tokens_used} tokens
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-6 rounded-2xl border border-neutral-800 bg-black p-5">
+              <h3 className="font-semibold">Last 3 Days</h3>
+
+              {!usage?.usageByDay?.length ? (
+                <p className="mt-3 text-sm text-neutral-500">
+                  No historical usage yet.
+                </p>
+              ) : (
+                <div className="mt-4 space-y-4">
+                  {usage.usageByDay.map((item) => {
+                    const max = Math.max(
+                      ...usage.usageByDay.map((day) => day.tokens_used),
+                      1
+                    );
+
+                    const width = Math.min(
+                      (item.tokens_used / max) * 100,
+                      100
+                    );
+
+                    return (
+                      <div key={item.date}>
+                        <div className="mb-1 flex justify-between text-sm">
+                          <span>{new Date(item.date).toLocaleDateString()}</span>
+                          <span className="text-neutral-500">
+                            {item.tokens_used}
+                          </span>
+                        </div>
+
+                        <div className="h-2 rounded-full bg-neutral-800">
+                          <div
+                            className="h-2 rounded-full bg-white"
+                            style={{ width: `${width}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </aside>
+        </div>
+      )}
     </main>
   );
 }

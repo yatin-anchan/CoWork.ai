@@ -13,7 +13,7 @@ type RouteParams = {
 const messageSchema = z.object({
   content: z.string().min(1),
   selectedRole: z
-    .enum(["auto", "search", "execution", "reviewing", "reasoning"])
+    .enum(["auto", "research", "execution", "reviewing", "reasoning"])
     .default("auto"),
 });
 

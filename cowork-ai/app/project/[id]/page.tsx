@@ -73,15 +73,40 @@ export default function ProjectChatPage() {
     fetchProject();
   }, [projectId]);
 
-  function handleSendMessage(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleSendMessage(e: React.FormEvent) {
+  e.preventDefault();
 
-    if (!input.trim()) return;
+  if (!input.trim()) return;
 
-    alert("Message API will be added in Step 8.");
+  const token = getToken();
 
-    setInput("");
+  if (!token) {
+    router.push("/auth/login");
+    return;
   }
+
+  const messageText = input;
+  setInput("");
+
+  const res = await fetch(`/api/projects/${projectId}/message`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      content: messageText,
+      selectedRole: selectedModel,
+    }),
+  });
+
+  if (!res.ok) {
+    alert("Failed to send message.");
+    return;
+  }
+
+  await fetchProject();
+}
 
   if (loading) {
     return (

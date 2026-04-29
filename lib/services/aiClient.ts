@@ -227,3 +227,49 @@ export async function callAIProvider(args: CallAIProviderArgs) {
 
   return callOpenAICompatible(args);
 }
+
+export async function streamAIProvider(args: CallAIProviderArgs) {
+  if (args.provider === "google") {
+    throw new Error("Gemini streaming will be added separately. Use Groq/OpenRouter/OpenAI streaming first.");
+  }
+
+  if (args.provider === "anthropic") {
+    throw new Error("Anthropic direct streaming is not added yet.");
+  }
+
+  const baseUrl = getOpenAICompatibleBaseUrl(
+    args.provider,
+    args.customBaseUrl
+  );
+
+  if (!baseUrl) {
+    throw new Error(`${args.provider} does not support streaming yet.`);
+  }
+
+  const res = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${args.apiKey}`,
+      ...(args.provider === "openrouter"
+        ? {
+            "HTTP-Referer": "http://localhost:3000",
+            "X-Title": "CoWork.ai",
+          }
+        : {}),
+    },
+    body: JSON.stringify({
+      model: args.model,
+      messages: normalizeMessages(args.messages, args.workType),
+      temperature: 0.7,
+      stream: true,
+    }),
+  });
+
+  if (!res.ok || !res.body) {
+    const errorText = await res.text().catch(() => "");
+    throw new Error(errorText || `${args.provider} streaming failed.`);
+  }
+
+  return res.body;
+}

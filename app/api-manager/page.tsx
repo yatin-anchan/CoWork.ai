@@ -149,6 +149,38 @@ export default function ApiManagerPage() {
     }
   }
 
+  async function handleDeleteKey(id: string) {
+  const token = getToken();
+
+  if (!token) {
+    router.push("/auth/login");
+    return;
+  }
+
+  const confirmed = confirm("Delete this API key? This cannot be undone.");
+
+  if (!confirmed) return;
+
+  const res = await fetch("/api/auth/keys", {
+    method: "DELETE",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ id }),
+  });
+
+  const data = await res.json();
+
+  if (!res.ok) {
+    setMessage(data.error || "Failed to delete API key.");
+    return;
+  }
+
+  setMessage("API key deleted successfully.");
+  await fetchKeysAndRoles();
+}
+
   async function handleSaveRoles() {
     const token = getToken();
 
@@ -285,6 +317,12 @@ export default function ApiManagerPage() {
                     <span className="rounded-full bg-green-900 px-3 py-1 text-sm text-green-200">
                       {key.status}
                     </span>
+                    <button
+  onClick={() => handleDeleteKey(key.id)}
+  className="rounded-lg border border-red-900 px-3 py-1.5 text-sm text-red-300 hover:bg-red-950"
+>
+  Delete
+</button>
                   </div>
                 ))}
               </div>

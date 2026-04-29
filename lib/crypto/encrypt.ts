@@ -1,19 +1,16 @@
 import crypto from "crypto";
 
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
-
-if (!ENCRYPTION_KEY) {
-  throw new Error("ENCRYPTION_KEY is not set");
+function getKey() {
+  const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
+  if (!ENCRYPTION_KEY) {
+    throw new Error("ENCRYPTION_KEY environment variable is not set.");
+  }
+  return crypto.createHash("sha256").update(ENCRYPTION_KEY).digest();
 }
 
-const key = crypto
-  .createHash("sha256")
-  .update(ENCRYPTION_KEY)
-  .digest();
-
-export function encryptText(text: string) {
+export function encryptText(text: string): string {
+  const key = getKey();
   const iv = crypto.randomBytes(16);
-
   const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
 
   const encrypted = Buffer.concat([
@@ -30,8 +27,15 @@ export function encryptText(text: string) {
   ].join(":");
 }
 
-export function decryptText(encryptedText: string) {
-  const [ivHex, authTagHex, encryptedHex] = encryptedText.split(":");
+export function decryptText(encryptedText: string): string {
+  const key = getKey();
+  const parts = encryptedText.split(":");
+
+  if (parts.length !== 3) {
+    throw new Error("Invalid encrypted text format.");
+  }
+
+  const [ivHex, authTagHex, encryptedHex] = parts;
 
   const decipher = crypto.createDecipheriv(
     "aes-256-gcm",

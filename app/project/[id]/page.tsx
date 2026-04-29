@@ -185,13 +185,14 @@ export default function ProjectChatPage() {
   }
 
   async function fetchProject() {
-    const token = getToken();
+  const token = getToken();
 
-    if (!token) {
-      router.push("/auth/login");
-      return;
-    }
+  if (!token) {
+    router.push("/auth/login");
+    return;
+  }
 
+  try {
     const res = await fetch(`/api/projects/${projectId}`, {
       headers: {
         Authorization: `Bearer ${token}`,
@@ -209,14 +210,32 @@ export default function ProjectChatPage() {
       return;
     }
 
-    const data = await res.json();
+    if (!res.ok) {
+      console.error(`fetchProject failed: ${res.status} ${res.statusText}`);
+      setLoading(false);
+      return;
+    }
+
+    const text = await res.text();
+
+    if (!text) {
+      console.error("fetchProject: empty response body");
+      setLoading(false);
+      return;
+    }
+
+    const data = JSON.parse(text);
 
     setProject(data.project);
     setMessages(data.contexts || []);
     await fetchRoleAssignments();
     await fetchUsage();
+  } catch (err) {
+    console.error("fetchProject error:", err);
+  } finally {
     setLoading(false);
   }
+}
 
   useEffect(() => {
     fetchProject();
@@ -255,20 +274,32 @@ export default function ProjectChatPage() {
   }
 
   async function handleSendMessage(e: React.FormEvent) {
-    e.preventDefault();
+  e.preventDefault();
 
-    if (!input.trim()) return;
+  if (!input.trim()) return;
 
-    const token = getToken();
+  const token = getToken();
 
-    if (!token) {
-      router.push("/auth/login");
-      return;
-    }
+  if (!token) {
+    router.push("/auth/login");
+    return;
+  }
 
-    const messageText = input;
-    setInput("");
+  const messageText = input.trim();
+  setInput("");
 
+  // Optimistically add user message to UI
+  const tempUserMessage: ContextMessage = {
+    id: `temp-${Date.now()}`,
+    role: "user",
+    model: null,
+    content: messageText,
+    tokens_used: 0,
+    timestamp: new Date().toISOString(),
+  };
+  setMessages((prev) => [...prev, tempUserMessage]);
+
+  try {
     const res = await fetch(`/api/projects/${projectId}/message`, {
       method: "POST",
       headers: {
@@ -282,12 +313,37 @@ export default function ProjectChatPage() {
     });
 
     if (!res.ok) {
-      alert("Failed to send message.");
+      const errData = await res.json().catch(() => ({}));
+      console.error("Send message failed:", errData);
+      alert(errData.error || "Failed to send message.");
+      // Remove optimistic message on failure
+      setMessages((prev) => prev.filter((m) => m.id !== tempUserMessage.id));
       return;
     }
 
-    await fetchProject();
+    const data = await res.json();
+
+    // Replace temp message + add assistant response
+    setMessages((prev) => [
+      ...prev.filter((m) => m.id !== tempUserMessage.id),
+      {
+        id: data.assistantMessage.id + "-user",
+        role: "user",
+        model: null,
+        content: messageText,
+        tokens_used: Math.ceil(messageText.length / 4),
+        timestamp: new Date().toISOString(),
+      },
+      data.assistantMessage,
+    ]);
+
+    await fetchUsage();
+  } catch (err) {
+    console.error("handleSendMessage error:", err);
+    alert("Something went wrong. Please try again.");
+    setMessages((prev) => prev.filter((m) => m.id !== tempUserMessage.id));
   }
+}
 
   if (loading) {
     return (

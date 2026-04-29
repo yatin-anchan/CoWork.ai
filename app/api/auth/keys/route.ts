@@ -26,14 +26,15 @@ const keySchema = z.object({
     .optional(),
 });
 
+const deleteSchema = z.object({
+  id: z.string().uuid(),
+});
+
 export async function GET(req: NextRequest) {
   const user = getAuthUser(req);
 
   if (!user) {
-    return NextResponse.json(
-      { error: "Unauthorized." },
-      { status: 401 }
-    );
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
 
   const keys = await sql`
@@ -51,10 +52,7 @@ export async function POST(req: NextRequest) {
     const user = getAuthUser(req);
 
     if (!user) {
-      return NextResponse.json(
-        { error: "Unauthorized." },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
 
     const body = await req.json();
@@ -76,13 +74,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (provider === "custom" && !modelConfig) {
-      return NextResponse.json(
-        { error: "Custom model configuration is required." },
-        { status: 400 }
-      );
-    }
-
     const encryptedKey = apiKey ? encryptText(apiKey) : null;
 
     const existing = await sql`
@@ -100,6 +91,7 @@ export async function POST(req: NextRequest) {
             status = 'active',
             updated_at = CURRENT_TIMESTAMP
         WHERE id = ${existing[0].id}
+        AND user_id = ${user.userId}
         RETURNING id, provider, model_config, status, created_at, updated_at
       `;
 
@@ -139,6 +131,58 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(
       { error: "Failed to save API key." },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const user = getAuthUser(req);
+
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    }
+
+    const body = await req.json();
+    const parsed = deleteSchema.safeParse(body);
+
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Valid key id is required." },
+        { status: 400 }
+      );
+    }
+
+    const deleted = await sql`
+      DELETE FROM user_api_keys
+      WHERE id = ${parsed.data.id}
+      AND user_id = ${user.userId}
+      RETURNING id, provider
+    `;
+
+    if (deleted.length === 0) {
+      return NextResponse.json(
+        { error: "API key not found." },
+        { status: 404 }
+      );
+    }
+
+    await sql`
+      DELETE FROM role_assignments
+      WHERE user_id = ${user.userId}
+      AND provider = ${deleted[0].provider}
+    `;
+
+    return NextResponse.json({
+      message: "API key deleted successfully.",
+      deleted: deleted[0],
+    });
+  } catch (error) {
+    console.error("Delete API key error:", error);
+
+    return NextResponse.json(
+      { error: "Failed to delete API key." },
       { status: 500 }
     );
   }

@@ -286,73 +286,92 @@ export default function ProjectChatPage() {
   }
 
   async function handleSendMessage(e: React.FormEvent) {
-    e.preventDefault();
+  e.preventDefault();
 
-    if (!input.trim()) return;
+  if (!input.trim()) return;
 
-    const token = getToken();
+  const token = getToken();
 
-    if (!token) {
-      router.push("/auth/login");
-      return;
-    }
-
-    const messageText = input.trim();
-    setInput("");
-
-    const tempUserMessage: ContextMessage = {
-      id: `temp-${Date.now()}`,
-      role: "user",
-      model: null,
-      content: messageText,
-      tokens_used: 0,
-      timestamp: new Date().toISOString(),
-    };
-    setMessages((prev) => [...prev, tempUserMessage]);
-
-    try {
-      const res = await fetch(`/api/projects/${projectId}/message`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          content: messageText,
-          selectedRole,
-        }),
-      });
-
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        console.error("Send message failed:", errData);
-        alert(errData.error || "Failed to send message.");
-        setMessages((prev) => prev.filter((m) => m.id !== tempUserMessage.id));
-        return;
-      }
-
-      const data = await res.json();
-
-      setMessages((prev) => [
-        ...prev.filter((m) => m.id !== tempUserMessage.id),
-        {
-          id: data.userMessage.id,
-          role: "user",
-          model: null,
-          content: messageText,
-          tokens_used: Math.ceil(messageText.length / 4),
-          timestamp: new Date().toISOString(),
-        },
-        data.assistantMessage,
-      ]);
-
-      await fetchUsage();
-    } catch (err) {
-      console.error("handleSendMessage error:", err);
-      alert("Something went wrong. Please try again.");
-      setMessages((prev) => prev.filter((m) => m.id !== tempUserMessage.id));
-    }
+  if (!token) {
+    router.push("/auth/login");
+    return;
   }
+
+  const messageText = input;
+  setInput("");
+
+  const tempUserMessage: ContextMessage = {
+    id: `user-${Date.now()}`,
+    role: "user",
+    model: null,
+    content: messageText,
+    tokens_used: Math.ceil(messageText.length / 4),
+    timestamp: new Date().toISOString(),
+  };
+
+  const tempAssistantMessage: ContextMessage = {
+    id: `assistant-${Date.now()}`,
+    role: "assistant",
+    model: "streaming",
+    content: "",
+    tokens_used: 0,
+    timestamp: new Date().toISOString(),
+  };
+
+  setMessages((prev) => [...prev, tempUserMessage, tempAssistantMessage]);
+
+  const res = await fetch(`/api/projects/${projectId}/message/stream`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      content: messageText,
+      selectedRole,
+    }),
+  });
+
+  if (!res.ok || !res.body) {
+    const errData = await res.json().catch(() => ({}));
+    alert(errData.error || "Failed to send message.");
+    setMessages((prev) =>
+      prev.filter(
+        (message) =>
+          message.id !== tempUserMessage.id &&
+          message.id !== tempAssistantMessage.id
+      )
+    );
+    return;
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+
+  let streamedText = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+
+    if (done) break;
+
+    const chunk = decoder.decode(value, { stream: true });
+    streamedText += chunk;
+
+    setMessages((prev) =>
+      prev.map((message) =>
+        message.id === tempAssistantMessage.id
+          ? {
+              ...message,
+              content: streamedText,
+            }
+          : message
+      )
+    );
+  }
+
+  await fetchProject();
+}
 
   if (loading) {
     return (

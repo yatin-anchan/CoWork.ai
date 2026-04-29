@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import RichMessage from "@/components/chat/RichMessage";
+
 import {
   BarChart3,
   Bot,
@@ -508,9 +510,7 @@ export default function ProjectChatPage() {
                         : "mr-auto border-neutral-800 bg-neutral-950 text-white"
                     }`}
                   >
-                    <p className="whitespace-pre-wrap text-sm leading-6">
-                      {message.content}
-                    </p>
+                    <RichMessage content={message.content} />
                     {message.model && (
                       <p className="mt-2 text-xs text-neutral-500">
                         Model: {message.model}

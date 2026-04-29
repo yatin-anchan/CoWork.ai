@@ -5,13 +5,15 @@ import { useParams, useRouter } from "next/navigation";
 import {
   Bot,
   Brain,
+  ChevronDown,
   Code2,
-  Compass,
   FileSearch,
+  LayoutDashboard,
   Menu,
   Plus,
   Send,
   Settings,
+  ShieldCheck,
   User,
   X,
 } from "lucide-react";
@@ -41,35 +43,46 @@ type SelectedRole =
   | "reviewing"
   | "auto";
 
+type RoleProviderMap = {
+  reasoning: string;
+  research: string;
+  execution: string;
+  reviewing: string;
+};
+
+const providerOptions = [
+  { value: "google", label: "Gemini" },
+  { value: "groq", label: "Groq" },
+  { value: "openrouter", label: "OpenRouter" },
+  { value: "anthropic", label: "Claude" },
+  { value: "openai", label: "ChatGPT" },
+  { value: "perplexity", label: "Perplexity" },
+];
+
 const roleButtons: {
-  value: SelectedRole;
-  label: string;
+  value: keyof RoleProviderMap;
+  fallbackLabel: string;
   icon: React.ReactNode;
 }[] = [
   {
     value: "reasoning",
-    label: "Reasoning",
-    icon: <Brain size={18} />,
+    fallbackLabel: "Gemini",
+    icon: <Brain size={17} />,
   },
   {
     value: "research",
-    label: "Research",
-    icon: <FileSearch size={18} />,
+    fallbackLabel: "Perplexity",
+    icon: <FileSearch size={17} />,
   },
   {
     value: "execution",
-    label: "Execution",
-    icon: <Code2 size={18} />,
+    fallbackLabel: "Groq",
+    icon: <Code2 size={17} />,
   },
   {
     value: "reviewing",
-    label: "Reviewing",
-    icon: <Compass size={18} />,
-  },
-  {
-    value: "auto",
-    label: "Auto",
-    icon: <Bot size={18} />,
+    fallbackLabel: "Gemini",
+    icon: <ShieldCheck size={17} />,
   },
 ];
 
@@ -86,8 +99,55 @@ export default function ProjectChatPage() {
   const [loading, setLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
+  const [roleProviders, setRoleProviders] = useState<RoleProviderMap>({
+    reasoning: "google",
+    research: "perplexity",
+    execution: "groq",
+    reviewing: "google",
+  });
+
   function getToken() {
     return localStorage.getItem("token");
+  }
+
+  function getProviderLabel(provider: string) {
+    return (
+      providerOptions.find((item) => item.value === provider)?.label ||
+      provider
+    );
+  }
+
+  async function fetchRoleAssignments() {
+    const token = getToken();
+
+    if (!token) return;
+
+    const res = await fetch("/api/models/roles", {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!res.ok) return;
+
+    const data = await res.json();
+
+    const nextProviders: RoleProviderMap = {
+      reasoning: "google",
+      research: "perplexity",
+      execution: "groq",
+      reviewing: "google",
+    };
+
+    data.roles?.forEach(
+      (item: { role: keyof RoleProviderMap; provider: string }) => {
+        if (item.role in nextProviders) {
+          nextProviders[item.role] = item.provider;
+        }
+      }
+    );
+
+    setRoleProviders(nextProviders);
   }
 
   async function fetchProject() {
@@ -119,12 +179,43 @@ export default function ProjectChatPage() {
 
     setProject(data.project);
     setMessages(data.contexts || []);
+    await fetchRoleAssignments();
     setLoading(false);
   }
 
   useEffect(() => {
     fetchProject();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
+
+  async function updateRoleProvider(
+    role: keyof RoleProviderMap,
+    provider: string
+  ) {
+    const token = getToken();
+
+    if (!token) {
+      router.push("/auth/login");
+      return;
+    }
+
+    setRoleProviders((prev) => ({
+      ...prev,
+      [role]: provider,
+    }));
+
+    await fetch("/api/models/roles", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        role,
+        provider,
+      }),
+    });
+  }
 
   async function handleSendMessage(e: React.FormEvent) {
     e.preventDefault();
@@ -163,108 +254,138 @@ export default function ProjectChatPage() {
 
   if (loading) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-white text-black">
+      <main className="flex h-screen items-center justify-center bg-black text-white">
         Loading project...
       </main>
     );
   }
 
   return (
-    <main className="flex min-h-screen flex-col bg-white text-black">
-      <header className="flex h-[62px] items-center border-b border-black bg-neutral-200 px-4">
+    <main className="flex h-screen flex-col overflow-hidden bg-black text-white">
+      <header className="flex h-16 shrink-0 items-center justify-between border-b border-neutral-800 bg-black px-5">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-black text-white">
-            <Bot size={22} />
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-black">
+            <Bot size={21} />
           </div>
-          <h1 className="text-xl font-bold">CoWork - AI</h1>
+
+          <div>
+            <h1 className="text-lg font-semibold tracking-tight">CoWork.ai</h1>
+            <p className="text-xs text-neutral-500">Multi-AI workspace</p>
+          </div>
         </div>
+
+        <button
+          onClick={() => router.push("/dashboard")}
+          className="rounded-lg border border-neutral-800 px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-900"
+        >
+          Dashboard
+        </button>
       </header>
 
-      <div className="flex flex-1">
-        <aside className="flex w-16 flex-col items-center justify-between border-r border-black bg-neutral-200 py-6">
-          <div className="space-y-6">
-            <button
-              onClick={() => setSidebarOpen((value) => !value)}
-              className="rounded-md p-2 hover:bg-neutral-300"
-            >
-              {sidebarOpen ? <X size={28} /> : <Menu size={28} />}
-            </button>
-          </div>
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <aside className="flex w-16 shrink-0 flex-col items-center justify-between border-r border-neutral-800 bg-black py-5">
+          <button
+            onClick={() => setSidebarOpen((value) => !value)}
+            className="rounded-lg p-2 text-neutral-400 hover:bg-neutral-900 hover:text-white"
+          >
+            {sidebarOpen ? <X size={22} /> : <Menu size={22} />}
+          </button>
 
-          <div className="space-y-6">
+          <div className="space-y-4">
             <button
               onClick={() => router.push("/settings")}
-              className="rounded-md p-2 hover:bg-neutral-300"
+              className="rounded-lg p-2 text-neutral-400 hover:bg-neutral-900 hover:text-white"
             >
-              <User size={28} />
+              <User size={22} />
             </button>
 
             <button
               onClick={() => router.push("/settings")}
-              className="rounded-md p-2 hover:bg-neutral-300"
+              className="rounded-lg p-2 text-neutral-400 hover:bg-neutral-900 hover:text-white"
             >
-              <Settings size={28} />
+              <Settings size={22} />
             </button>
           </div>
         </aside>
 
         {sidebarOpen && (
-          <aside className="w-64 border-r border-black bg-neutral-200 p-5">
-            <h2 className="font-semibold">{project?.name}</h2>
-            <p className="mt-1 text-sm text-neutral-600">
-              {project?.description || "No description"}
-            </p>
+          <aside className="w-72 shrink-0 border-r border-neutral-800 bg-neutral-950 p-5">
+            <div>
+              <h2 className="truncate text-sm font-semibold text-white">
+                {project?.name}
+              </h2>
+              <p className="mt-1 line-clamp-2 text-xs text-neutral-500">
+                {project?.description || "No description"}
+              </p>
+            </div>
 
-            <div className="mt-8 space-y-3">
-              <button className="w-full rounded-lg border border-black bg-white px-4 py-2 text-left text-sm hover:bg-neutral-100">
+            <div className="mt-8 space-y-2">
+              <button className="w-full rounded-xl bg-white px-4 py-2.5 text-left text-sm font-medium text-black hover:bg-neutral-200">
                 + New Chat
               </button>
 
               <button
                 onClick={() => router.push("/dashboard")}
-                className="w-full rounded-lg border border-black bg-white px-4 py-2 text-left text-sm hover:bg-neutral-100"
+                className="flex w-full items-center gap-2 rounded-xl px-4 py-2.5 text-left text-sm text-neutral-300 hover:bg-neutral-900"
               >
+                <LayoutDashboard size={16} />
                 New Project
               </button>
 
-              <button className="w-full rounded-lg border border-black bg-white px-4 py-2 text-left text-sm hover:bg-neutral-100">
+              <button className="w-full rounded-xl px-4 py-2.5 text-left text-sm text-neutral-300 hover:bg-neutral-900">
                 History
               </button>
 
               <button
                 onClick={() => router.push("/api-manager")}
-                className="w-full rounded-lg border border-black bg-white px-4 py-2 text-left text-sm hover:bg-neutral-100"
+                className="w-full rounded-xl px-4 py-2.5 text-left text-sm text-neutral-300 hover:bg-neutral-900"
               >
                 API Manager
               </button>
 
               <button
                 onClick={() => router.push("/settings")}
-                className="w-full rounded-lg border border-black bg-white px-4 py-2 text-left text-sm hover:bg-neutral-100"
+                className="w-full rounded-xl px-4 py-2.5 text-left text-sm text-neutral-300 hover:bg-neutral-900"
               >
                 Settings
               </button>
             </div>
 
-            <div className="mt-8 rounded-xl border border-black bg-white p-4 text-sm">
-              <p className="font-semibold">Token Usage</p>
-              <p className="mt-2 text-neutral-600">Used: 0</p>
-              <p className="text-neutral-600">Remaining: Not tracked yet</p>
-              <p className="text-neutral-600">Mode: {selectedRole}</p>
+            <div className="mt-8 rounded-2xl border border-neutral-800 bg-black p-4 text-sm">
+              <p className="font-medium text-white">Token Usage</p>
+              <p className="mt-2 text-neutral-500">Used: 0</p>
+              <p className="text-neutral-500">Remaining: Not tracked yet</p>
+              <p className="text-neutral-500">
+                Active:{" "}
+                {selectedRole === "auto"
+                  ? "Auto"
+                  : getProviderLabel(roleProviders[selectedRole])}
+              </p>
             </div>
           </aside>
         )}
 
-        <section className="relative flex flex-1 flex-col">
-          <div className="flex-1 overflow-y-auto px-8 py-8 pb-44">
+        <section className="flex min-h-0 flex-1 flex-col overflow-hidden bg-black">
+          <div className="shrink-0 border-b border-neutral-800 px-6 py-4">
+            <h2 className="text-base font-semibold">{project?.name}</h2>
+            <p className="text-xs text-neutral-500">
+              Choose a role/model below, then send a message.
+            </p>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
             {messages.length === 0 ? (
-              <div className="flex h-full items-center justify-center text-center text-neutral-500">
-                <div>
-                  <p className="text-xl font-semibold text-black">
-                    Start with a selected AI role
+              <div className="flex h-full items-center justify-center text-center">
+                <div className="max-w-md">
+                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-black">
+                    <Bot size={24} />
+                  </div>
+                  <p className="mt-4 text-lg font-semibold">
+                    Start with a selected model
                   </p>
-                  <p className="mt-2 text-sm">
-                    Choose Reasoning, Research, Execution, or Reviewing before sending.
+                  <p className="mt-2 text-sm text-neutral-500">
+                    Use the model row below to switch reasoning, research,
+                    execution, or reviewing without opening API Manager.
                   </p>
                 </div>
               </div>
@@ -273,13 +394,15 @@ export default function ProjectChatPage() {
                 {messages.map((message) => (
                   <div
                     key={message.id}
-                    className={`max-w-[80%] rounded-2xl border border-black p-4 ${
+                    className={`max-w-[80%] rounded-2xl border px-4 py-3 ${
                       message.role === "user"
-                        ? "ml-auto bg-neutral-200"
-                        : "mr-auto bg-white"
+                        ? "ml-auto border-neutral-700 bg-white text-black"
+                        : "mr-auto border-neutral-800 bg-neutral-950 text-white"
                     }`}
                   >
-                    <p className="whitespace-pre-wrap">{message.content}</p>
+                    <p className="whitespace-pre-wrap text-sm leading-6">
+                      {message.content}
+                    </p>
 
                     {message.model && (
                       <p className="mt-2 text-xs text-neutral-500">
@@ -294,51 +417,100 @@ export default function ProjectChatPage() {
 
           <form
             onSubmit={handleSendMessage}
-            className="absolute bottom-8 left-1/2 w-full max-w-5xl -translate-x-1/2 px-6"
+            className="shrink-0 border-t border-neutral-800 bg-black px-6 py-5"
           >
-            <div className="flex items-center rounded-[28px] border border-black bg-neutral-200 px-5 py-4">
-              <button
-                type="button"
-                className="mr-5 rounded-full p-1 hover:bg-neutral-300"
-              >
-                <Plus size={28} />
-              </button>
+            <div className="mx-auto max-w-5xl">
+              <div className="flex items-center rounded-2xl border border-neutral-700 bg-neutral-950 px-4 py-3 shadow-lg">
+                <button
+                  type="button"
+                  className="mr-3 rounded-lg p-2 text-neutral-400 hover:bg-neutral-900 hover:text-white"
+                >
+                  <Plus size={22} />
+                </button>
 
-              <input
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="Type Here............"
-                className="flex-1 bg-transparent text-base font-semibold outline-none placeholder:text-neutral-500"
-              />
+                <input
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  placeholder="Message CoWork.ai..."
+                  className="flex-1 bg-transparent text-sm text-white outline-none placeholder:text-neutral-600"
+                />
 
-              <button
-                type="submit"
-                className="ml-5 rounded-full bg-black p-2 text-white hover:bg-neutral-800"
-              >
-                <Send size={20} />
-              </button>
-            </div>
+                <button
+                  type="submit"
+                  className="ml-3 rounded-xl bg-white p-2 text-black hover:bg-neutral-200"
+                >
+                  <Send size={18} />
+                </button>
+              </div>
 
-            <div className="mt-4 grid grid-cols-5 gap-4">
-              {roleButtons.map((role) => {
-                const active = selectedRole === role.value;
+              <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-5">
+                {roleButtons.map((role) => {
+                  const active = selectedRole === role.value;
+                  const providerLabel = getProviderLabel(
+                    roleProviders[role.value]
+                  );
 
-                return (
-                  <button
-                    key={role.value}
-                    type="button"
-                    onClick={() => setSelectedRole(role.value)}
-                    className={`flex items-center justify-center gap-2 rounded-full px-4 py-2 text-sm font-medium ${
-                      active
-                        ? "bg-black text-white"
-                        : "bg-neutral-200 text-black hover:bg-neutral-300"
-                    }`}
-                  >
-                    {role.icon}
-                    {role.label}
-                  </button>
-                );
-              })}
+                  return (
+                    <div
+                      key={role.value}
+                      className={`flex items-center rounded-xl border text-sm ${
+                        active
+                          ? "border-white bg-white text-black"
+                          : "border-neutral-800 bg-neutral-950 text-neutral-300 hover:bg-neutral-900"
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setSelectedRole(role.value)}
+                        className="flex min-w-0 flex-1 items-center justify-center gap-2 px-3 py-2.5"
+                      >
+                        {role.icon}
+                        <span className="truncate">{providerLabel}</span>
+                      </button>
+
+                      <div className="relative mr-2 flex items-center">
+                        <ChevronDown
+                          size={15}
+                          className={
+                            active ? "text-black" : "text-neutral-500"
+                          }
+                        />
+
+                        <select
+                          value={roleProviders[role.value]}
+                          onChange={(e) =>
+                            updateRoleProvider(role.value, e.target.value)
+                          }
+                          title={`Change ${role.value} model`}
+                          className="absolute inset-0 cursor-pointer opacity-0"
+                        >
+                          {providerOptions.map((provider) => (
+                            <option
+                              key={provider.value}
+                              value={provider.value}
+                            >
+                              {provider.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedRole("auto")}
+                  className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm ${
+                    selectedRole === "auto"
+                      ? "border-white bg-white text-black"
+                      : "border-neutral-800 bg-neutral-950 text-neutral-300 hover:bg-neutral-900"
+                  }`}
+                >
+                  <Bot size={17} />
+                  Auto
+                </button>
+              </div>
             </div>
           </form>
         </section>

@@ -106,7 +106,6 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    return NextResponse.json({ url, error: message }, { status: 502 });
-  }
+  return NextResponse.json({ preview: null });
+}
 }

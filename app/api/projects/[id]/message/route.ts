@@ -41,12 +41,21 @@ export async function POST(req: NextRequest, context: RouteParams) {
     const { id: projectId } = await context.params;
 
     const project = await sql`
-      SELECT id
+      SELECT id, instructions
       FROM projects
       WHERE id = ${projectId}
       AND user_id = ${user.userId}
       LIMIT 1
     `;
+
+    const instructions = project[0]?.instructions?.trim();
+
+    const systemMessage = instructions
+      ? `SYSTEM INSTRUCTIONS (HIGHEST PRIORITY):
+You must follow these strictly and override any conflicting user request.
+
+${instructions}`
+      : null;
 
     if (project.length === 0) {
       return NextResponse.json({ error: "Project not found." }, { status: 404 });
@@ -131,24 +140,33 @@ export async function POST(req: NextRequest, context: RouteParams) {
       ORDER BY timestamp ASC
     `;
 
-    const sharedHistory: ChatMessage[] = historyRows.map((item: any) => ({
-      role: item.role === "assistant" ? "assistant" : "user",
-      content: item.content,
-    }));
+    const MAX_HISTORY = 10;
+
+const trimmedHistory = historyRows.slice(-MAX_HISTORY);
+
+const sharedHistory: ChatMessage[] = trimmedHistory.map((item: any) => ({
+  role: item.role === "assistant" ? "assistant" : "user",
+  content: item.content,
+}));
 
     const messagesForProvider: ChatMessage[] = [
+      ...(systemMessage
+        ? [{ role: "system", content: systemMessage }]
+        : []),
+
       ...sharedHistory,
+
       { role: "user", content },
     ];
 
     const assistantResponse = await callAIProvider({
-  provider: selectedProvider as AIProvider,
-  apiKey,
-  model: selectedModel,
-  customBaseUrl,
-  messages: messagesForProvider,
-  workType,
-});
+      provider: selectedProvider as AIProvider,
+      apiKey,
+      model: selectedModel,
+      customBaseUrl,
+      messages: messagesForProvider,
+      workType,
+    });
 
     const userMessage = await sql`
       INSERT INTO contexts (

@@ -21,10 +21,23 @@ import {
   X,
 } from "lucide-react";
 
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+
 type Project = {
   id: string;
   name: string;
   description: string | null;
+  instructions: string | null;
   status: string;
   created_at: string;
   updated_at: string;
@@ -55,10 +68,14 @@ type RoleProviderMap = {
 
 type UsageData = {
   totalTokensToday: number;
+  totalCostToday: number;
   mostUsedModel: string | null;
+  teamModeUsage: number;
   usageByModel: {
     model: string;
+    provider: string;
     tokens_used: number;
+    cost: number;
   }[];
   usageByDay: {
     date: string;
@@ -73,6 +90,7 @@ type UsageData = {
     limit: number;
     usedToday: number;
     remaining: number;
+    costToday: number;
   }[];
 };
 
@@ -111,6 +129,13 @@ export default function ProjectChatPage() {
   const [usage, setUsage] = useState<UsageData | null>(null);
   const [messageMode, setMessageMode] = useState<"single" | "team">("single");
   const [isStreaming, setIsStreaming] = useState(false);
+
+  // ── Project Settings state ──────────────────────────────────────────────
+  const [showSettings, setShowSettings] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editInstructions, setEditInstructions] = useState("");
+  // ────────────────────────────────────────────────────────────────────────
 
   const [roleProviders, setRoleProviders] = useState<RoleProviderMap>({
     reasoning: "google",
@@ -254,6 +279,16 @@ export default function ProjectChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
+  // ── Populate settings fields whenever project loads ─────────────────────
+  useEffect(() => {
+    if (project) {
+      setEditName(project.name || "");
+      setEditDescription(project.description || "");
+      setEditInstructions(project.instructions || "");
+    }
+  }, [project]);
+  // ────────────────────────────────────────────────────────────────────────
+
   async function updateRoleProvider(
     role: keyof RoleProviderMap,
     provider: string
@@ -286,6 +321,33 @@ export default function ProjectChatPage() {
 
     await fetchRoleAssignments();
   }
+
+  // ── Save project settings ───────────────────────────────────────────────
+  async function saveProjectSettings() {
+    const token = getToken();
+
+    const res = await fetch(`/api/projects/${projectId}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        name: editName,
+        description: editDescription,
+        instructions: editInstructions.slice(0, 4000),
+      }),
+    });
+
+    if (!res.ok) {
+      alert("Failed to update project.");
+      return;
+    }
+
+    await fetchProject();
+    setShowSettings(false);
+  }
+  // ────────────────────────────────────────────────────────────────────────
 
  async function handleSendMessage(e: React.FormEvent) {
   e.preventDefault();
@@ -463,6 +525,14 @@ export default function ProjectChatPage() {
         </div>
 
         <div className="flex items-center gap-3">
+          {/* ── Project Settings button ── */}
+          <button
+            onClick={() => setShowSettings(true)}
+            className="rounded-lg border border-neutral-700 px-3 py-1 text-sm hover:bg-neutral-800"
+          >
+            Project Settings
+          </button>
+
           <button
             onClick={() => setUsageOpen(true)}
             className="flex items-center gap-2 rounded-lg border border-neutral-800 px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-900"
@@ -544,12 +614,21 @@ export default function ProjectChatPage() {
 
             <div className="mt-8 rounded-2xl border border-neutral-800 bg-black p-4 text-sm">
               <p className="font-medium text-white">Token Usage</p>
-              <p className="mt-2 text-neutral-500">
-                Used today: {usage?.totalTokensToday ?? 0}
-              </p>
-              <p className="text-neutral-500">
-                Most used: {usage?.mostUsedModel || "None"}
-              </p>
+               <p className="mt-2 text-3xl font-bold">
+    {usage?.totalTokensToday ?? 0}
+  </p>
+
+  <p className="text-sm text-neutral-500">
+    Cost today: ${usage?.totalCostToday?.toFixed(4) || "0.0000"}
+  </p>
+
+  <p className="mt-1 text-sm text-neutral-500">
+    Most used: {usage?.mostUsedModel || "None"}
+  </p>
+
+  <p className="text-sm text-neutral-500">
+    Team Mode used: {usage?.teamModeUsage ?? 0} times
+  </p>
               <p className="text-neutral-500">
                 Active:{" "}
                 {selectedRole === "auto"
@@ -737,6 +816,7 @@ export default function ProjectChatPage() {
         </section>
       </div>
 
+      {/* ── Usage Analysis panel ─────────────────────────────────────────── */}
       {usageOpen && (
         <div className="fixed inset-0 z-50 flex justify-end bg-black/60">
           <aside className="h-full w-full max-w-md overflow-y-auto border-l border-neutral-800 bg-neutral-950 p-6 text-white shadow-2xl">
@@ -756,10 +836,13 @@ export default function ProjectChatPage() {
             </div>
 
             <div className="mt-6 rounded-2xl border border-neutral-800 bg-black p-5">
-              <p className="text-sm text-neutral-500">Total used today</p>
               <p className="mt-2 text-3xl font-bold">
-                {usage?.totalTokensToday ?? 0}
-              </p>
+  {usage?.totalTokensToday ?? 0}
+</p>
+
+<p className="text-sm text-neutral-500">
+  Cost today: ${usage?.totalCostToday?.toFixed(4) || "0.0000"}
+</p>
               <p className="mt-1 text-sm text-neutral-500">
                 Most used: {usage?.mostUsedModel || "None"}
               </p>
@@ -795,12 +878,16 @@ export default function ProjectChatPage() {
                         <p className="mt-1 text-xs text-neutral-500">
                           Remaining: {item.remaining}
                         </p>
+                        <p className="text-xs text-neutral-400">
+  Cost: ${item.costToday?.toFixed(4) || "0.0000"}
+</p>
                       </div>
                     );
                   })}
                 </div>
               )}
             </div>
+
 
             <div className="mt-6 rounded-2xl border border-neutral-800 bg-black p-5">
               <h3 className="font-semibold">Usage by Model Today</h3>
@@ -824,45 +911,160 @@ export default function ProjectChatPage() {
             </div>
 
             <div className="mt-6 rounded-2xl border border-neutral-800 bg-black p-5">
-              <h3 className="font-semibold">Last 3 Days</h3>
-              {!usage?.usageByDay?.length ? (
-                <p className="mt-3 text-sm text-neutral-500">
-                  No historical usage yet.
-                </p>
-              ) : (
-                <div className="mt-4 space-y-4">
-                  {usage.usageByDay.map((item) => {
-                    const max = Math.max(
-                      ...usage.usageByDay.map((day) => day.tokens_used),
-                      1
-                    );
-                    const width = Math.min(
-                      (item.tokens_used / max) * 100,
-                      100
-                    );
-                    return (
-                      <div key={item.date}>
-                        <div className="mb-1 flex justify-between text-sm">
-                          <span>
-                            {new Date(item.date).toLocaleDateString()}
-                          </span>
-                          <span className="text-neutral-500">
-                            {item.tokens_used}
-                          </span>
-                        </div>
-                        <div className="h-2 rounded-full bg-neutral-800">
-                          <div
-                            className="h-2 rounded-full bg-white"
-                            style={{ width: `${width}%` }}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+  <h3 className="font-semibold mb-4">Usage Trend</h3>
+
+  {usage?.usageByDay?.length ? (
+    <div style={{ width: "100%", height: 260, minHeight: 260 }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={usage.usageByDay}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#262626" />
+          <XAxis
+            dataKey="date"
+            tick={{ fontSize: 12, fill: "#a3a3a3" }}
+          />
+          <YAxis tick={{ fontSize: 12, fill: "#a3a3a3" }} />
+          <Tooltip />
+          <Line
+            type="monotone"
+            dataKey="tokens_used"
+            strokeWidth={2}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  ) : (
+    <p className="text-sm text-neutral-500">No data yet</p>
+  )}
+</div>
+<div className="mt-6 rounded-2xl border border-neutral-800 bg-black p-5">
+  <h3 className="font-semibold mb-4">Usage by Provider</h3>
+
+  {usage?.providerUsage?.length ? (
+    <div style={{ width: "100%", height: 260, minHeight: 260 }}> 
+      <ResponsiveContainer width="100%" height={260}>
+        <BarChart data={usage.providerUsage}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#262626" />
+          <XAxis
+            dataKey="provider"
+            tick={{ fontSize: 12, fill: "#a3a3a3" }}
+          />
+          <YAxis tick={{ fontSize: 12, fill: "#a3a3a3" }} />
+          <Tooltip />
+          <Bar dataKey="usedToday" radius={[4, 4, 0, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  ) : (
+    <p className="text-sm text-neutral-500">No provider usage yet</p>
+  )}
+</div>
           </aside>
+        </div>
+      )}
+
+      {/* ── Project Settings Modal ───────────────────────────────────────── */}
+      {showSettings && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
+          <div className="w-[700px] max-w-full rounded-2xl border border-neutral-800 bg-black p-6">
+
+            <h2 className="text-lg font-semibold mb-4">
+              Project Settings
+            </h2>
+
+            {/* Name */}
+            <input
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              className="w-full rounded-lg border border-neutral-800 bg-neutral-950 p-2 mb-3 text-white outline-none"
+              placeholder="Project name"
+            />
+
+            {/* Description */}
+            <textarea
+              value={editDescription}
+              onChange={(e) => setEditDescription(e.target.value)}
+              className="w-full rounded-lg border border-neutral-800 bg-neutral-950 p-2 mb-3 text-white outline-none resize-none"
+              rows={2}
+              placeholder="Description"
+            />
+
+            {/* Markdown Toolbar */}
+            <div className="flex gap-2 mb-2 text-sm">
+              <button
+                type="button"
+                onClick={() => setEditInstructions((prev) => prev + "**bold** ")}
+                className="rounded px-2 py-1 border border-neutral-700 hover:bg-neutral-800 font-bold"
+              >
+                B
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditInstructions((prev) => prev + "*italic* ")}
+                className="rounded px-2 py-1 border border-neutral-700 hover:bg-neutral-800 italic"
+              >
+                I
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditInstructions((prev) => prev + "- item\n")}
+                className="rounded px-2 py-1 border border-neutral-700 hover:bg-neutral-800"
+              >
+                •
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditInstructions((prev) => prev + "## Heading\n")}
+                className="rounded px-2 py-1 border border-neutral-700 hover:bg-neutral-800"
+              >
+                H
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditInstructions((prev) => prev + "> quote\n")}
+                className="rounded px-2 py-1 border border-neutral-700 hover:bg-neutral-800"
+              >
+                ❝
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditInstructions((prev) => prev + "`code` ")}
+                className="rounded px-2 py-1 border border-neutral-700 hover:bg-neutral-800 font-mono"
+              >
+                {"</>"}
+              </button>
+            </div>
+
+            {/* Instructions */}
+            <textarea
+              value={editInstructions}
+              onChange={(e) => setEditInstructions(e.target.value)}
+              className="w-full h-40 rounded-lg border border-neutral-800 bg-neutral-950 p-2 text-white outline-none resize-none font-mono text-sm"
+              placeholder="Project instructions (max 4000 chars)"
+            />
+
+            <p className="text-xs text-neutral-500 mt-1">
+              {editInstructions.length}/4000
+            </p>
+
+            {/* Actions */}
+            <div className="flex justify-end gap-2 mt-4">
+              <button
+                type="button"
+                onClick={() => setShowSettings(false)}
+                className="px-4 py-2 text-sm text-neutral-400 hover:text-white"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={saveProjectSettings}
+                className="rounded-lg bg-white px-4 py-2 text-black text-sm font-medium hover:bg-neutral-200"
+              >
+                Save
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </main>

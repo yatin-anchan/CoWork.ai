@@ -10,6 +10,11 @@ import {
   streamAIProvider,
 } from "@/lib/services/aiClient";
 
+import {
+  getOptimizedProjectContext,
+  maybeUpdateProjectMemory,
+} from "@/lib/services/memory";
+
 type RouteParams = {
   params: Promise<{ id: string }>;
 };
@@ -66,15 +71,6 @@ export async function POST(req: NextRequest, context: RouteParams) {
       AND user_id = ${user.userId}
       LIMIT 1
     `;
-
-    const instructions = project[0]?.instructions?.trim();
-
-const systemMessage = instructions
-  ? `SYSTEM INSTRUCTIONS (HIGHEST PRIORITY):
-You must follow these strictly and override any conflicting user request.
-
-${instructions}`
-  : null;
 
     if (project.length === 0) {
       return NextResponse.json({ error: "Project not found." }, { status: 404 });
@@ -149,27 +145,26 @@ ${instructions}`
     const customBaseUrl =
       selectedProvider === "custom" ? modelConfig?.baseUrl || null : null;
 
-    const historyRows = await sql`
-      SELECT role, content
-      FROM contexts
-      WHERE project_id = ${projectId}
-      ORDER BY timestamp ASC
-    `;
+    const optimizedContext = await getOptimizedProjectContext({ projectId });
 
-    const sharedHistory: ChatMessage[] = historyRows.map((item: any) => ({
-      role: item.role === "assistant" ? "assistant" : "user",
-      content: item.content,
-    }));
+    const instructions = project[0]?.instructions?.trim();
+
+    const systemMessage = instructions
+      ? `SYSTEM INSTRUCTIONS (HIGHEST PRIORITY):
+You must follow these strictly and override any conflicting user request.
+
+${instructions}`
+      : null;
 
     const messagesForProvider: ChatMessage[] = [
-  ...(systemMessage
-    ? [{ role: "system" as const, content: systemMessage }]
-    : []),
+      ...(systemMessage
+        ? [{ role: "system" as const, content: systemMessage }]
+        : []),
 
-  ...sharedHistory,
+      ...optimizedContext.messages,
 
-  { role: "user", content },
-];
+      { role: "user", content },
+    ];
 
     await sql`
       INSERT INTO contexts (
@@ -252,6 +247,16 @@ ${instructions}`
             WHERE id = ${projectId}
           `;
 
+          maybeUpdateProjectMemory({
+            projectId,
+            provider: selectedProvider as AIProvider,
+            apiKey,
+            model: selectedModel,
+            customBaseUrl,
+          }).catch((error) => {
+            console.error("[memory] Failed to update project memory:", error);
+          });
+
           controller.close();
         } catch (error) {
           console.error("[stream route] Stream failed:", error);
@@ -274,4 +279,4 @@ ${instructions}`
       { status: 500 }
     );
   }
-}   
+}

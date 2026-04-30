@@ -24,7 +24,7 @@ export async function GET(req: NextRequest, context: RouteParams) {
     const { id } = await context.params;
 
     const projects = await sql`
-      SELECT id, name, description, instructions, status, created_at, updated_at
+      SELECT id, name, description, instructions, memory_summary, memory_updated_at, status, created_at, updated_at
       FROM projects
       WHERE id = ${id}
       AND user_id = ${user.userId}

@@ -8,6 +8,10 @@ import {
   ChatMessage,
   callAIProvider,
 } from "@/lib/services/aiClient";
+import {
+  getOptimizedProjectContext,
+  maybeUpdateProjectMemory,
+} from "@/lib/services/memory";
 
 type RouteParams = {
   params: Promise<{ id: string }>;
@@ -153,15 +157,6 @@ export async function POST(req: NextRequest, context: RouteParams) {
       LIMIT 1
     `;
 
-    const instructions = project[0]?.instructions?.trim();
-
-    const systemMessage = instructions
-      ? `SYSTEM INSTRUCTIONS (HIGHEST PRIORITY):
-You must follow these strictly and override any conflicting user request.
-
-${instructions}`
-      : null;
-
     if (project.length === 0) {
       return NextResponse.json({ error: "Project not found." }, { status: 404 });
     }
@@ -178,21 +173,24 @@ ${instructions}`
 
     const { content } = parsed.data;
 
-    const historyRows = await sql`
-      SELECT role, content
-      FROM contexts
-      WHERE project_id = ${projectId}
-      ORDER BY timestamp ASC
-    `;
+    const optimizedContext = await getOptimizedProjectContext({ projectId });
 
-    const MAX_HISTORY = 10;
+    const instructions = project[0]?.instructions?.trim();
 
-const trimmedHistory = historyRows.slice(-MAX_HISTORY);
+    const systemMessage = instructions
+      ? `SYSTEM INSTRUCTIONS (HIGHEST PRIORITY):
+You must follow these strictly and override any conflicting user request.
 
-const sharedHistory: ChatMessage[] = trimmedHistory.map((item: any) => ({
-  role: item.role === "assistant" ? "assistant" : "user",
-  content: item.content,
-}));
+${instructions}`
+      : null;
+
+    const sharedHistory: ChatMessage[] = [
+      ...(systemMessage
+        ? [{ role: "system" as const, content: systemMessage }]
+        : []),
+
+      ...optimizedContext.messages,
+    ];
 
     const reasoningProvider = await getProviderForRole({
       userId: authUser.userId,
@@ -237,12 +235,7 @@ const sharedHistory: ChatMessage[] = trimmedHistory.map((item: any) => ({
       customBaseUrl: reasoningCreds.customBaseUrl,
       workType: "reasoning",
       messages: [
-        ...(systemMessage
-          ? [{ role: "system", content: systemMessage }]
-          : []),
-
         ...sharedHistory,
-
         {
           role: "user",
           content: `
@@ -262,12 +255,7 @@ ${content}
       customBaseUrl: executionCreds.customBaseUrl,
       workType: "execution",
       messages: [
-        ...(systemMessage
-          ? [{ role: "system", content: systemMessage }]
-          : []),
-
         ...sharedHistory,
-
         {
           role: "user",
           content: `
@@ -290,12 +278,7 @@ ${plan}
       customBaseUrl: reviewingCreds.customBaseUrl,
       workType: "reviewing",
       messages: [
-        ...(systemMessage
-          ? [{ role: "system", content: systemMessage }]
-          : []),
-
         ...sharedHistory,
-
         {
           role: "user",
           content: `
@@ -361,6 +344,16 @@ Reviewing: ${reviewingProvider}/${reviewingCreds.model}
       SET updated_at = CURRENT_TIMESTAMP
       WHERE id = ${projectId}
     `;
+
+    maybeUpdateProjectMemory({
+      projectId,
+      provider: reviewingProvider,
+      apiKey: reviewingCreds.apiKey,
+      model: reviewingCreds.model,
+      customBaseUrl: reviewingCreds.customBaseUrl,
+    }).catch((error) => {
+      console.error("[memory] Failed to update project memory:", error);
+    });
 
     return NextResponse.json({
       message: "Team Mode completed successfully.",

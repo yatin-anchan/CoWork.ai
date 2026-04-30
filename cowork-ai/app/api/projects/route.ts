@@ -5,27 +5,34 @@ import { getAuthUser } from "@/lib/auth/middleware";
 
 const projectSchema = z.object({
   name: z.string().min(1).max(255),
-  description: z.string().optional(),
+  description: z.string().max(1000).optional().nullable(),
+  instructions: z.string().max(4000).optional().nullable(),
 });
 
 export async function GET(req: NextRequest) {
-  const user = getAuthUser(req);
+  try {
+    const user = getAuthUser(req);
 
-  if (!user) {
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    }
+
+    const projects = await sql`
+      SELECT id, name, description, instructions, status, created_at, updated_at
+      FROM projects
+      WHERE user_id = ${user.userId}
+      ORDER BY updated_at DESC
+    `;
+
+    return NextResponse.json({ projects });
+  } catch (error) {
+    console.error("List projects error:", error);
+
     return NextResponse.json(
-      { error: "Unauthorized." },
-      { status: 401 }
+      { error: "Failed to load projects." },
+      { status: 500 }
     );
   }
-
-  const projects = await sql`
-    SELECT id, name, description, status, created_at, updated_at
-    FROM projects
-    WHERE user_id = ${user.userId}
-    ORDER BY updated_at DESC
-  `;
-
-  return NextResponse.json({ projects });
 }
 
 export async function POST(req: NextRequest) {
@@ -33,10 +40,7 @@ export async function POST(req: NextRequest) {
     const user = getAuthUser(req);
 
     if (!user) {
-      return NextResponse.json(
-        { error: "Unauthorized." },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
 
     const body = await req.json();
@@ -49,12 +53,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { name, description } = parsed.data;
+    const { name, description, instructions } = parsed.data;
 
     const inserted = await sql`
-      INSERT INTO projects (user_id, name, description)
-      VALUES (${user.userId}, ${name}, ${description || null})
-      RETURNING id, name, description, status, created_at, updated_at
+      INSERT INTO projects (user_id, name, description, instructions)
+      VALUES (
+        ${user.userId},
+        ${name},
+        ${description || null},
+        ${instructions || null}
+      )
+      RETURNING id, name, description, instructions, status, created_at, updated_at
     `;
 
     return NextResponse.json(

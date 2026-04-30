@@ -146,12 +146,21 @@ export async function POST(req: NextRequest, context: RouteParams) {
     }
 
     const project = await sql`
-      SELECT id
+      SELECT id, instructions
       FROM projects
       WHERE id = ${projectId}
       AND user_id = ${authUser.userId}
       LIMIT 1
     `;
+
+    const instructions = project[0]?.instructions?.trim();
+
+    const systemMessage = instructions
+      ? `SYSTEM INSTRUCTIONS (HIGHEST PRIORITY):
+You must follow these strictly and override any conflicting user request.
+
+${instructions}`
+      : null;
 
     if (project.length === 0) {
       return NextResponse.json({ error: "Project not found." }, { status: 404 });
@@ -176,10 +185,14 @@ export async function POST(req: NextRequest, context: RouteParams) {
       ORDER BY timestamp ASC
     `;
 
-    const sharedHistory: ChatMessage[] = historyRows.map((item: any) => ({
-      role: item.role === "assistant" ? "assistant" : "user",
-      content: item.content,
-    }));
+    const MAX_HISTORY = 10;
+
+const trimmedHistory = historyRows.slice(-MAX_HISTORY);
+
+const sharedHistory: ChatMessage[] = trimmedHistory.map((item: any) => ({
+  role: item.role === "assistant" ? "assistant" : "user",
+  content: item.content,
+}));
 
     const reasoningProvider = await getProviderForRole({
       userId: authUser.userId,
@@ -224,7 +237,12 @@ export async function POST(req: NextRequest, context: RouteParams) {
       customBaseUrl: reasoningCreds.customBaseUrl,
       workType: "reasoning",
       messages: [
+        ...(systemMessage
+          ? [{ role: "system", content: systemMessage }]
+          : []),
+
         ...sharedHistory,
+
         {
           role: "user",
           content: `
@@ -244,7 +262,12 @@ ${content}
       customBaseUrl: executionCreds.customBaseUrl,
       workType: "execution",
       messages: [
+        ...(systemMessage
+          ? [{ role: "system", content: systemMessage }]
+          : []),
+
         ...sharedHistory,
+
         {
           role: "user",
           content: `
@@ -267,7 +290,12 @@ ${plan}
       customBaseUrl: reviewingCreds.customBaseUrl,
       workType: "reviewing",
       messages: [
+        ...(systemMessage
+          ? [{ role: "system", content: systemMessage }]
+          : []),
+
         ...sharedHistory,
+
         {
           role: "user",
           content: `

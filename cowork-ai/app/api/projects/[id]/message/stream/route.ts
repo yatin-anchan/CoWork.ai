@@ -60,12 +60,21 @@ export async function POST(req: NextRequest, context: RouteParams) {
     const { id: projectId } = await context.params;
 
     const project = await sql`
-      SELECT id
+      SELECT id, instructions
       FROM projects
       WHERE id = ${projectId}
       AND user_id = ${user.userId}
       LIMIT 1
     `;
+
+    const instructions = project[0]?.instructions?.trim();
+
+const systemMessage = instructions
+  ? `SYSTEM INSTRUCTIONS (HIGHEST PRIORITY):
+You must follow these strictly and override any conflicting user request.
+
+${instructions}`
+  : null;
 
     if (project.length === 0) {
       return NextResponse.json({ error: "Project not found." }, { status: 404 });
@@ -153,9 +162,14 @@ export async function POST(req: NextRequest, context: RouteParams) {
     }));
 
     const messagesForProvider: ChatMessage[] = [
-      ...sharedHistory,
-      { role: "user", content },
-    ];
+  ...(systemMessage
+    ? [{ role: "system" as const, content: systemMessage }]
+    : []),
+
+  ...sharedHistory,
+
+  { role: "user", content },
+];
 
     await sql`
       INSERT INTO contexts (

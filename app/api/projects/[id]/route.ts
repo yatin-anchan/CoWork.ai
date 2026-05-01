@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { sql } from "@/lib/db/neon";
 import { getAuthUser } from "@/lib/auth/middleware";
+import {
+  canEditProject,
+  getProjectAccess,
+} from "@/lib/auth/projectAccess";
 
 type RouteParams = {
   params: Promise<{ id: string }>;
@@ -23,11 +27,19 @@ export async function GET(req: NextRequest, context: RouteParams) {
 
     const { id } = await context.params;
 
+    const access = await getProjectAccess({
+      projectId: id,
+      userId: user.userId,
+    });
+
+    if (!access.hasAccess) {
+      return NextResponse.json({ error: "Project not found." }, { status: 404 });
+    }
+
     const projects = await sql`
       SELECT id, name, description, instructions, memory_summary, memory_updated_at, status, created_at, updated_at
       FROM projects
       WHERE id = ${id}
-      AND user_id = ${user.userId}
       LIMIT 1
     `;
 
@@ -43,7 +55,10 @@ export async function GET(req: NextRequest, context: RouteParams) {
     `;
 
     return NextResponse.json({
-      project: projects[0],
+      project: {
+        ...projects[0],
+        my_role: access.role,
+      },
       contexts,
     });
   } catch (error) {
@@ -76,11 +91,22 @@ export async function PATCH(req: NextRequest, context: RouteParams) {
       );
     }
 
+    const access = await getProjectAccess({
+      projectId: id,
+      userId: user.userId,
+    });
+
+    if (!canEditProject(access.role)) {
+      return NextResponse.json(
+        { error: "You do not have permission to edit this project." },
+        { status: 403 }
+      );
+    }
+
     const current = await sql`
       SELECT id, name, description, instructions
       FROM projects
       WHERE id = ${id}
-      AND user_id = ${user.userId}
       LIMIT 1
     `;
 
@@ -89,6 +115,7 @@ export async function PATCH(req: NextRequest, context: RouteParams) {
     }
 
     const updatedName = parsed.data.name ?? current[0].name;
+
     const updatedDescription =
       parsed.data.description !== undefined
         ? parsed.data.description
@@ -106,13 +133,15 @@ export async function PATCH(req: NextRequest, context: RouteParams) {
           instructions = ${updatedInstructions || null},
           updated_at = CURRENT_TIMESTAMP
       WHERE id = ${id}
-      AND user_id = ${user.userId}
-      RETURNING id, name, description, instructions, status, created_at, updated_at
+      RETURNING id, name, description, instructions, memory_summary, memory_updated_at, status, created_at, updated_at
     `;
 
     return NextResponse.json({
       message: "Project updated successfully.",
-      project: updated[0],
+      project: {
+        ...updated[0],
+        my_role: access.role,
+      },
     });
   } catch (error) {
     console.error("Update project error:", error);
@@ -134,10 +163,21 @@ export async function DELETE(req: NextRequest, context: RouteParams) {
 
     const { id } = await context.params;
 
+    const access = await getProjectAccess({
+      projectId: id,
+      userId: user.userId,
+    });
+
+    if (access.role !== "owner") {
+      return NextResponse.json(
+        { error: "Only the owner can delete this project." },
+        { status: 403 }
+      );
+    }
+
     const deleted = await sql`
       DELETE FROM projects
       WHERE id = ${id}
-      AND user_id = ${user.userId}
       RETURNING id
     `;
 

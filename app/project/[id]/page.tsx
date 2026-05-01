@@ -34,6 +34,17 @@ import {
   YAxis,
 } from "recharts";
 
+// Step 8 — Chat type
+type Chat = {
+  id: string;
+  project_id: string;
+  user_id: string;
+  title: string;
+  visibility: "public" | "private";
+  created_at: string;
+  updated_at: string;
+};
+
 type Project = {
   id: string;
   name: string;
@@ -141,21 +152,25 @@ export default function ProjectChatPage() {
   const [messageMode, setMessageMode] = useState<"single" | "team">("single");
   const [isStreaming, setIsStreaming] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
-const [members, setMembers] = useState<ProjectMember[]>([]);
-const [myProjectRole, setMyProjectRole] = useState<"owner" | "editor" | "viewer" | null>(null);
-const [inviteEmail, setInviteEmail] = useState("");
-const [inviteRole, setInviteRole] = useState<"editor" | "viewer">("viewer");
+  const [members, setMembers] = useState<ProjectMember[]>([]);
+  const [myProjectRole, setMyProjectRole] = useState<"owner" | "editor" | "viewer" | null>(null);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState<"editor" | "viewer">("viewer");
 
-const canEditProject = project?.my_role === "owner" || project?.my_role === "editor";
-const canManageProject = project?.my_role === "owner";
-const canSendMessages = project?.my_role === "owner" || project?.my_role === "editor";
+  // Step 8 — Chat states
+  const [chats, setChats] = useState<Chat[]>([]);
+  const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const [chatListOpen, setChatListOpen] = useState(false);
 
-  // ── Project Settings state ──────────────────────────────────────────────
+  const canEditProject = project?.my_role === "owner" || project?.my_role === "editor";
+  const canManageProject = project?.my_role === "owner";
+  const canSendMessages = project?.my_role === "owner" || project?.my_role === "editor";
+
+  // Project Settings state
   const [showSettings, setShowSettings] = useState(false);
   const [editName, setEditName] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editInstructions, setEditInstructions] = useState("");
-  // ────────────────────────────────────────────────────────────────────────
 
   const [roleProviders, setRoleProviders] = useState<RoleProviderMap>({
     reasoning: "google",
@@ -200,124 +215,86 @@ const canSendMessages = project?.my_role === "owner" || project?.my_role === "ed
   }
 
   async function fetchMembers() {
-  const token = getToken();
-  if (!token) return;
+    const token = getToken();
+    if (!token) return;
 
-  const res = await fetch(`/api/projects/${projectId}/members`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  });
+    const res = await fetch(`/api/projects/${projectId}/members`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
 
-  if (!res.ok) return;
+    if (!res.ok) return;
 
-  const data = await res.json();
-
-  setMembers(data.members || []);
-  setMyProjectRole(data.myRole || null);
-}
-
-async function inviteMember() {
-  const token = getToken();
-
-  if (!token) {
-    router.push("/auth/login");
-    return;
+    const data = await res.json();
+    setMembers(data.members || []);
+    setMyProjectRole(data.myRole || null);
   }
 
-  if (!inviteEmail.trim()) {
-    alert("Enter an email address.");
-    return;
+  async function inviteMember() {
+    const token = getToken();
+
+    if (!token) {
+      router.push("/auth/login");
+      return;
+    }
+
+    if (!inviteEmail.trim()) {
+      alert("Enter an email address.");
+      return;
+    }
+
+    const res = await fetch(`/api/projects/${projectId}/members`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        email: inviteEmail.trim(),
+        role: inviteRole,
+      }),
+    });
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      alert(data.error || "Failed to invite member.");
+      return;
+    }
+
+    setInviteEmail("");
+    setInviteRole("viewer");
+    await fetchMembers();
   }
 
-  const res = await fetch(`/api/projects/${projectId}/members`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({
-      email: inviteEmail.trim(),
-      role: inviteRole,
-    }),
-  });
+  async function removeMember(userId: string) {
+    const token = getToken();
 
-  const data = await res.json().catch(() => ({}));
+    if (!token) {
+      router.push("/auth/login");
+      return;
+    }
 
-  if (!res.ok) {
-    alert(data.error || "Failed to invite member.");
-    return;
+    const confirmed = confirm("Remove this member from the project?");
+    if (!confirmed) return;
+
+    const res = await fetch(`/api/projects/${projectId}/members`, {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ userId }),
+    });
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      alert(data.error || "Failed to remove member.");
+      return;
+    }
+
+    await fetchMembers();
   }
-
-  setInviteEmail("");
-  setInviteRole("viewer");
-  await fetchMembers();
-}
-
-async function updateMemberRole(
-  userId: string,
-  role: "editor" | "viewer"
-) {
-  const token = getToken();
-
-  if (!token) {
-    router.push("/auth/login");
-    return;
-  }
-
-  const res = await fetch(`/api/projects/${projectId}/members`, {
-    method: "PATCH",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({
-      userId,
-      role,
-    }),
-  });
-
-  const data = await res.json().catch(() => ({}));
-
-  if (!res.ok) {
-    alert(data.error || "Failed to update member role.");
-    return;
-  }
-
-  await fetchMembers();
-}
-
-async function removeMember(userId: string) {
-  const token = getToken();
-
-  if (!token) {
-    router.push("/auth/login");
-    return;
-  }
-
-  const confirmed = confirm("Remove this member from the project?");
-  if (!confirmed) return;
-
-  const res = await fetch(`/api/projects/${projectId}/members`, {
-    method: "DELETE",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({
-      userId,
-    }),
-  });
-
-  const data = await res.json().catch(() => ({}));
-
-  if (!res.ok) {
-    alert(data.error || "Failed to remove member.");
-    return;
-  }
-
-  await fetchMembers();
-}
 
   async function fetchRoleAssignments() {
     const token = getToken();
@@ -404,7 +381,6 @@ async function removeMember(userId: string) {
       const data = JSON.parse(text);
 
       setProject(data.project);
-      setMessages(data.contexts || []);
       await fetchRoleAssignments();
       await fetchUsage();
     } catch (err) {
@@ -414,12 +390,141 @@ async function removeMember(userId: string) {
     }
   }
 
+  // Step 9 — Fetch chats
+  async function fetchChats() {
+    const token = getToken();
+    if (!token) return;
+
+    const res = await fetch(`/api/projects/${projectId}/chats`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (!res.ok) return;
+
+    const data = await res.json();
+    const nextChats = data.chats || [];
+
+    setChats(nextChats);
+
+    if (!activeChatId && nextChats.length > 0) {
+      setActiveChatId(nextChats[0].id);
+    }
+
+    return nextChats;
+  }
+
+  // Step 10 — Fetch messages for active chat
+  async function fetchChatMessages(chatId: string) {
+    const token = getToken();
+    if (!token) return;
+
+    const res = await fetch(`/api/projects/${projectId}/chats/${chatId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (!res.ok) return;
+
+    const data = await res.json();
+    setMessages(data.contexts || []);
+  }
+
+  // Step 11 — Create new chat
+  async function createNewChat() {
+    const token = getToken();
+    if (!token) return;
+
+    const res = await fetch(`/api/projects/${projectId}/chats`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        title: "New Chat",
+        visibility: "public",
+      }),
+    });
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      alert(data.error || "Failed to create chat.");
+      return;
+    }
+
+    await fetchChats();
+    setActiveChatId(data.chat.id);
+    setMessages([]);
+  }
+
+  // Step 14 — Update chat visibility
+  async function updateChatVisibility(
+    chatId: string,
+    visibility: "public" | "private"
+  ) {
+    const token = getToken();
+    if (!token) return;
+
+    const res = await fetch(`/api/projects/${projectId}/chats/${chatId}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ visibility }),
+    });
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      alert(data.error || "Failed to update chat.");
+      return;
+    }
+
+    await fetchChats();
+  }
+
+  // Step 15 — Delete chat (renamed from "History")
+  async function deleteChat() {
+    if (!activeChatId) return;
+
+    const confirmed = confirm("Delete this chat and all its messages?");
+    if (!confirmed) return;
+
+    const token = getToken();
+    if (!token) return;
+
+    const res = await fetch(`/api/projects/${projectId}/chats/${activeChatId}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (!res.ok) {
+      alert("Failed to delete chat.");
+      return;
+    }
+
+    await fetchChats();
+    setMessages([]);
+    setActiveChatId(null);
+  }
+
+  // Step 9 — Load chats on mount alongside project
   useEffect(() => {
     fetchProject();
+    fetchChats();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
-  // ── Populate settings fields whenever project loads ─────────────────────
+  // Step 10 — Fetch messages whenever active chat changes
+  useEffect(() => {
+    if (activeChatId) {
+      fetchChatMessages(activeChatId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeChatId]);
+
+  // Populate settings fields whenever project loads
   useEffect(() => {
     if (project) {
       setEditName(project.name || "");
@@ -427,7 +532,6 @@ async function removeMember(userId: string) {
       setEditInstructions(project.instructions || "");
     }
   }, [project]);
-  // ────────────────────────────────────────────────────────────────────────
 
   async function updateRoleProvider(
     role: keyof RoleProviderMap,
@@ -440,10 +544,7 @@ async function removeMember(userId: string) {
       return;
     }
 
-    setRoleProviders((prev) => ({
-      ...prev,
-      [role]: provider,
-    }));
+    setRoleProviders((prev) => ({ ...prev, [role]: provider }));
 
     const res = await fetch(`/api/projects/${projectId}/roles`, {
       method: "POST",
@@ -462,7 +563,6 @@ async function removeMember(userId: string) {
     await fetchRoleAssignments();
   }
 
-  // ── Save project settings ───────────────────────────────────────────────
   async function saveProjectSettings() {
     const token = getToken();
 
@@ -487,110 +587,154 @@ async function removeMember(userId: string) {
     await fetchProject();
     setShowSettings(false);
   }
-  // ────────────────────────────────────────────────────────────────────────
 
- async function handleSendMessage(e: React.FormEvent) {
-  e.preventDefault();
+  // Step 12 — Send message with chatId
+  async function handleSendMessage(e: React.FormEvent) {
+    e.preventDefault();
 
-  if (!canSendMessages) {
-  alert("Viewer access cannot send messages.");
-  return;
-}
-
-  if (!input.trim()) return;
-
-  const token = getToken();
-
-  if (!token) {
-    router.push("/auth/login");
-    return;
-  }
-
-  const messageText = input;
-  setInput("");
-  setIsStreaming(true);
-
-  const tempUserMessage: ContextMessage = {
-    id: `user-${Date.now()}`,
-    role: "user",
-    model: null,
-    content: messageText,
-    tokens_used: Math.ceil(messageText.length / 4),
-    timestamp: new Date().toISOString(),
-  };
-
-  const tempAssistantMessage: ContextMessage = {
-    id: `assistant-${Date.now()}`,
-    role: "assistant",
-    model:
-      messageMode === "team"
-        ? "team-mode"
-        : selectedRole === "auto"
-          ? "streaming"
-          : getProviderLabel(roleProviders[selectedRole]),
-    content: "",
-    tokens_used: 0,
-    timestamp: new Date().toISOString(),
-  };
-
-  setMessages((prev) => [...prev, tempUserMessage, tempAssistantMessage]);
-
-  try {
-    const endpoint =
-      messageMode === "team"
-        ? `/api/projects/${projectId}/message/team`
-        : `/api/projects/${projectId}/message/stream`;
-
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        content: messageText,
-        selectedRole,
-      }),
-    });
-
-    if (!res.ok) {
-      const errData = await res.json().catch(() => ({}));
-      console.error("Send message failed:", errData);
-
-      alert(errData.error || "Failed to send message.");
-
-      setMessages((prev) =>
-        prev.filter(
-          (message) =>
-            message.id !== tempUserMessage.id &&
-            message.id !== tempAssistantMessage.id
-        )
-      );
-
+    if (!canSendMessages) {
+      alert("Viewer access cannot send messages.");
       return;
     }
 
-    if (messageMode === "team") {
-      const data = await res.json();
+    // Step 12 — Guard: must have an active chat
+    if (!activeChatId) {
+      alert("Create or select a chat first.");
+      return;
+    }
 
-      setMessages((prev) =>
-        prev.map((message) =>
-          message.id === tempAssistantMessage.id
-            ? {
-                ...message,
-                model: "team-mode",
-                content: data.assistantMessage?.content || "",
-              }
-            : message
-        )
-      );
+    if (!input.trim()) return;
+
+    const token = getToken();
+
+    if (!token) {
+      router.push("/auth/login");
+      return;
+    }
+
+    const messageText = input;
+    setInput("");
+    setIsStreaming(true);
+
+    const tempUserMessage: ContextMessage = {
+      id: `user-${Date.now()}`,
+      role: "user",
+      model: null,
+      content: messageText,
+      tokens_used: Math.ceil(messageText.length / 4),
+      timestamp: new Date().toISOString(),
+    };
+
+    const tempAssistantMessage: ContextMessage = {
+      id: `assistant-${Date.now()}`,
+      role: "assistant",
+      model:
+        messageMode === "team"
+          ? "team-mode"
+          : selectedRole === "auto"
+            ? "streaming"
+            : getProviderLabel(roleProviders[selectedRole]),
+      content: "",
+      tokens_used: 0,
+      timestamp: new Date().toISOString(),
+    };
+
+    setMessages((prev) => [...prev, tempUserMessage, tempAssistantMessage]);
+
+    try {
+      const endpoint =
+        messageMode === "team"
+          ? `/api/projects/${projectId}/message/team`
+          : `/api/projects/${projectId}/message/stream`;
+
+      // Step 12 — include chatId in body
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          content: messageText,
+          selectedRole,
+          chatId: activeChatId,
+        }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        console.error("Send message failed:", errData);
+        alert(errData.error || "Failed to send message.");
+
+        setMessages((prev) =>
+          prev.filter(
+            (message) =>
+              message.id !== tempUserMessage.id &&
+              message.id !== tempAssistantMessage.id
+          )
+        );
+
+        return;
+      }
+
+      if (messageMode === "team") {
+        const data = await res.json();
+
+        setMessages((prev) =>
+          prev.map((message) =>
+            message.id === tempAssistantMessage.id
+              ? {
+                  ...message,
+                  model: "team-mode",
+                  content: data.assistantMessage?.content || "",
+                }
+              : message
+          )
+        );
+
+        await fetchProject();
+        return;
+      }
+
+      if (!res.body) {
+        alert("Streaming response was empty.");
+
+        setMessages((prev) =>
+          prev.filter(
+            (message) =>
+              message.id !== tempUserMessage.id &&
+              message.id !== tempAssistantMessage.id
+          )
+        );
+
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let streamedText = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        streamedText += chunk;
+
+        setMessages((prev) =>
+          prev.map((message) =>
+            message.id === tempAssistantMessage.id
+              ? { ...message, content: streamedText }
+              : message
+          )
+        );
+      }
 
       await fetchProject();
-      return;
-    }
-
-    if (!res.body) {
-      alert("Streaming response was empty.");
+    } catch (error) {
+      console.error("Message send error:", error);
+      alert("Failed to send message.");
 
       setMessages((prev) =>
         prev.filter(
@@ -599,52 +743,11 @@ async function removeMember(userId: string) {
             message.id !== tempAssistantMessage.id
         )
       );
-
-      return;
+    } finally {
+      setIsStreaming(false);
+      await fetchUsage();
     }
-
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let streamedText = "";
-
-    while (true) {
-      const { done, value } = await reader.read();
-
-      if (done) break;
-
-      const chunk = decoder.decode(value, { stream: true });
-      streamedText += chunk;
-
-      setMessages((prev) =>
-        prev.map((message) =>
-          message.id === tempAssistantMessage.id
-            ? {
-                ...message,
-                content: streamedText,
-              }
-            : message
-        )
-      );
-    }
-
-    await fetchProject();
-  } catch (error) {
-    console.error("Message send error:", error);
-
-    alert("Failed to send message.");
-
-    setMessages((prev) =>
-      prev.filter(
-        (message) =>
-          message.id !== tempUserMessage.id &&
-          message.id !== tempAssistantMessage.id
-      )
-    );
-  } finally {
-    setIsStreaming(false);
-    await fetchUsage();
   }
-}
 
   if (loading) {
     return (
@@ -669,24 +772,18 @@ async function removeMember(userId: string) {
           </div>
         </div>
 
-        
-
         <div className="flex items-center gap-3">
-<button
-  onClick={async () => {
-    setMembersOpen(true);
-    await fetchMembers();
-  }}
-  title="Project members"
-  className="flex items-center gap-2 rounded-lg border border-neutral-800 px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-900"
->
-  <UserPlus size={16} />
-  {canManageProject ? "Invite" : "Members"}
-</button>
-
-          {/* ── Project Settings button ── */}
-
-          
+          <button
+            onClick={async () => {
+              setMembersOpen(true);
+              await fetchMembers();
+            }}
+            title="Project members"
+            className="flex items-center gap-2 rounded-lg border border-neutral-800 px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-900"
+          >
+            <UserPlus size={16} />
+            {canManageProject ? "Invite" : "Members"}
+          </button>
 
           <button
             onClick={() => setUsageOpen(true)}
@@ -740,9 +837,14 @@ async function removeMember(userId: string) {
             </div>
 
             <div className="mt-8 space-y-2">
-              <button className="w-full rounded-xl bg-white px-4 py-2.5 text-left text-sm font-medium text-black hover:bg-neutral-200">
+              {/* Step 11 — New Chat button */}
+              <button
+                onClick={createNewChat}
+                className="w-full rounded-xl bg-white px-4 py-2.5 text-left text-sm font-medium text-black hover:bg-neutral-200"
+              >
                 + New Chat
               </button>
+
               <button
                 onClick={() => router.push("/dashboard")}
                 className="flex w-full items-center gap-2 rounded-xl px-4 py-2.5 text-left text-sm text-neutral-300 hover:bg-neutral-900"
@@ -750,42 +852,54 @@ async function removeMember(userId: string) {
                 <LayoutDashboard size={16} />
                 New Project
               </button>
-              <button className="w-full rounded-xl px-4 py-2.5 text-left text-sm text-neutral-300 hover:bg-neutral-900">
-                History
+
+              {/* Step 13 — Chat List button */}
+              <button
+                onClick={() => setChatListOpen(true)}
+                className="w-full rounded-xl px-4 py-2.5 text-left text-sm text-neutral-300 hover:bg-neutral-900"
+              >
+                Chat List
               </button>
+
+              {/* Step 15 — Delete Chat button (renamed from History) */}
+              <button
+                onClick={deleteChat}
+                className="w-full rounded-xl px-4 py-2.5 text-left text-sm text-red-400 hover:bg-neutral-900"
+              >
+                Delete Chat
+              </button>
+
               <button
                 onClick={() => router.push("/api-manager")}
                 className="w-full rounded-xl px-4 py-2.5 text-left text-sm text-neutral-300 hover:bg-neutral-900"
               >
                 API Manager
               </button>
+
               {canEditProject && (
-  <button
-    onClick={() => setShowSettings(true)}
-    className="rounded-lg border border-neutral-800 px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-900"
-  >
-    Project Settings
-  </button>
-)}
+                <button
+                  onClick={() => setShowSettings(true)}
+                  className="rounded-lg border border-neutral-800 px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-900"
+                >
+                  Project Settings
+                </button>
+              )}
             </div>
 
             <div className="mt-8 rounded-2xl border border-neutral-800 bg-black p-4 text-sm">
               <p className="font-medium text-white">Token Usage</p>
-               <p className="mt-2 text-3xl font-bold">
-    {usage?.totalTokensToday ?? 0}
-  </p>
-
-  <p className="text-sm text-neutral-500">
-    Cost today: ${usage?.totalCostToday?.toFixed(4) || "0.0000"}
-  </p>
-
-  <p className="mt-1 text-sm text-neutral-500">
-    Most used: {usage?.mostUsedModel || "None"}
-  </p>
-
-  <p className="text-sm text-neutral-500">
-    Team Mode used: {usage?.teamModeUsage ?? 0} times
-  </p>
+              <p className="mt-2 text-3xl font-bold">
+                {usage?.totalTokensToday ?? 0}
+              </p>
+              <p className="text-sm text-neutral-500">
+                Cost today: ${usage?.totalCostToday?.toFixed(4) || "0.0000"}
+              </p>
+              <p className="mt-1 text-sm text-neutral-500">
+                Most used: {usage?.mostUsedModel || "None"}
+              </p>
+              <p className="text-sm text-neutral-500">
+                Team Mode used: {usage?.teamModeUsage ?? 0} times
+              </p>
               <p className="text-neutral-500">
                 Active:{" "}
                 {selectedRole === "auto"
@@ -798,8 +912,12 @@ async function removeMember(userId: string) {
 
         <section className="flex min-h-0 flex-1 flex-col overflow-hidden bg-black">
           <div className="shrink-0 border-b border-neutral-800 px-6 py-4">
-  <h2 className="text-base font-semibold">{project?.name}</h2>
-</div>
+            <h2 className="text-base font-semibold">
+              {activeChatId
+                ? chats.find((c) => c.id === activeChatId)?.title ?? project?.name
+                : project?.name}
+            </h2>
+          </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
             {messages.length === 0 ? (
@@ -853,56 +971,56 @@ async function removeMember(userId: string) {
                   <Plus size={22} />
                 </button>
                 <input
-  value={input}
-  onChange={(e) => setInput(e.target.value)}
-  disabled={!canSendMessages}
-  placeholder={
-    canSendMessages
-      ? "Message CoWork.ai..."
-      : "Viewer access: messaging is disabled"
-  }
-  className="flex-1 bg-transparent text-sm text-white outline-none placeholder:text-neutral-600 disabled:cursor-not-allowed disabled:text-neutral-600"
-/>
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  disabled={!canSendMessages}
+                  placeholder={
+                    canSendMessages
+                      ? "Message CoWork.ai..."
+                      : "Viewer access: messaging is disabled"
+                  }
+                  className="flex-1 bg-transparent text-sm text-white outline-none placeholder:text-neutral-600 disabled:cursor-not-allowed disabled:text-neutral-600"
+                />
                 <button
-  type="submit"
-  disabled={isStreaming || !input.trim() || !canSendMessages}
-  className="ml-3 rounded-xl bg-white p-2 text-black hover:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-50"
->
-  <Send size={18} />
-</button>
+                  type="submit"
+                  disabled={isStreaming || !input.trim() || !canSendMessages}
+                  className="ml-3 rounded-xl bg-white p-2 text-black hover:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Send size={18} />
+                </button>
               </div>
 
               <div className="mt-4 flex items-center justify-between rounded-xl border border-neutral-800 bg-neutral-950 p-2">
-  <div className="flex rounded-lg bg-black p-1">
-    <button
-      type="button"
-      onClick={() => setMessageMode("single")}
-      className={`rounded-md px-4 py-2 text-sm ${
-        messageMode === "single"
-          ? "bg-white text-black"
-          : "text-neutral-400 hover:text-white"
-      }`}
-    >
-      Single Model
-    </button>
+                <div className="flex rounded-lg bg-black p-1">
+                  <button
+                    type="button"
+                    onClick={() => setMessageMode("single")}
+                    className={`rounded-md px-4 py-2 text-sm ${
+                      messageMode === "single"
+                        ? "bg-white text-black"
+                        : "text-neutral-400 hover:text-white"
+                    }`}
+                  >
+                    Single Model
+                  </button>
 
-    <button
-      type="button"
-      onClick={() => setMessageMode("team")}
-      className={`rounded-md px-4 py-2 text-sm ${
-        messageMode === "team"
-          ? "bg-white text-black"
-          : "text-neutral-400 hover:text-white"
-      }`}
-    >
-      Team Mode Pro
-    </button>
-  </div>
+                  <button
+                    type="button"
+                    onClick={() => setMessageMode("team")}
+                    className={`rounded-md px-4 py-2 text-sm ${
+                      messageMode === "team"
+                        ? "bg-white text-black"
+                        : "text-neutral-400 hover:text-white"
+                    }`}
+                  >
+                    Team Mode Pro
+                  </button>
+                </div>
 
-  <p className="text-xs text-neutral-500">
-    Team Mode uses reasoning → execution → review.
-  </p>
-</div>
+                <p className="text-xs text-neutral-500">
+                  Team Mode uses reasoning → execution → review.
+                </p>
+              </div>
 
               {usage?.connectedProviders?.length === 0 && (
                 <p className="mt-3 rounded-xl border border-yellow-800 bg-yellow-950/40 px-4 py-3 text-sm text-yellow-300">
@@ -930,9 +1048,9 @@ async function removeMember(userId: string) {
                       <button
                         type="button"
                         onClick={() => {
-  if (!canEditProject) return;
-  setSelectedRole(role.value);
-}}
+                          if (!canEditProject) return;
+                          setSelectedRole(role.value);
+                        }}
                         className="flex min-w-0 flex-1 items-center justify-center gap-2 px-3 py-2.5"
                       >
                         {role.icon}
@@ -967,9 +1085,9 @@ async function removeMember(userId: string) {
                 <button
                   type="button"
                   onClick={() => {
-  if (!canEditProject) return;
-  setSelectedRole("auto");
-}}
+                    if (!canEditProject) return;
+                    setSelectedRole("auto");
+                  }}
                   className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm ${
                     selectedRole === "auto"
                       ? "border-white bg-white text-black"
@@ -985,7 +1103,74 @@ async function removeMember(userId: string) {
         </section>
       </div>
 
-      {/* ── Usage Analysis panel ─────────────────────────────────────────── */}
+      {/* Step 13 — Chat List modal */}
+      {chatListOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+          <div className="w-full max-w-xl rounded-2xl border border-neutral-800 bg-neutral-950 p-6 text-white">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Chats</h2>
+              <button
+                onClick={() => setChatListOpen(false)}
+                className="rounded-lg border border-neutral-800 px-3 py-2 text-sm"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-5 space-y-3">
+              {chats.length === 0 ? (
+                <p className="text-sm text-neutral-500">No chats yet. Create one to get started.</p>
+              ) : (
+                chats.map((chat) => (
+                  <button
+                    key={chat.id}
+                    onClick={() => {
+                      setActiveChatId(chat.id);
+                      setChatListOpen(false);
+                    }}
+                    className={`flex w-full items-center justify-between rounded-xl border px-4 py-3 text-left ${
+                      activeChatId === chat.id
+                        ? "border-white bg-white text-black"
+                        : "border-neutral-800 bg-black text-white hover:bg-neutral-900"
+                    }`}
+                  >
+                    <div>
+                      <p className="text-sm font-medium">{chat.title}</p>
+                      <p className="text-xs opacity-60">
+                        {new Date(chat.updated_at).toLocaleString()}
+                      </p>
+                    </div>
+
+                    {/* Step 14 — Owner visibility toggle */}
+                    {project?.my_role === "owner" ? (
+                      <select
+                        value={chat.visibility}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) =>
+                          updateChatVisibility(
+                            chat.id,
+                            e.target.value as "public" | "private"
+                          )
+                        }
+                        className="rounded-lg border border-neutral-700 bg-black px-2 py-1 text-xs"
+                      >
+                        <option value="public">Public</option>
+                        <option value="private">Private</option>
+                      </select>
+                    ) : (
+                      <span className="rounded-full border px-2 py-0.5 text-xs capitalize">
+                        {chat.visibility}
+                      </span>
+                    )}
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Usage Analysis panel */}
       {usageOpen && (
         <div className="fixed inset-0 z-50 flex justify-end bg-black/60">
           <aside className="h-full w-full max-w-md overflow-y-auto border-l border-neutral-800 bg-neutral-950 p-6 text-white shadow-2xl">
@@ -1006,12 +1191,11 @@ async function removeMember(userId: string) {
 
             <div className="mt-6 rounded-2xl border border-neutral-800 bg-black p-5">
               <p className="mt-2 text-3xl font-bold">
-  {usage?.totalTokensToday ?? 0}
-</p>
-
-<p className="text-sm text-neutral-500">
-  Cost today: ${usage?.totalCostToday?.toFixed(4) || "0.0000"}
-</p>
+                {usage?.totalTokensToday ?? 0}
+              </p>
+              <p className="text-sm text-neutral-500">
+                Cost today: ${usage?.totalCostToday?.toFixed(4) || "0.0000"}
+              </p>
               <p className="mt-1 text-sm text-neutral-500">
                 Most used: {usage?.mostUsedModel || "None"}
               </p>
@@ -1048,15 +1232,14 @@ async function removeMember(userId: string) {
                           Remaining: {item.remaining}
                         </p>
                         <p className="text-xs text-neutral-400">
-  Cost: ${item.costToday?.toFixed(4) || "0.0000"}
-</p>
+                          Cost: ${item.costToday?.toFixed(4) || "0.0000"}
+                        </p>
                       </div>
                     );
                   })}
                 </div>
               )}
             </div>
-
 
             <div className="mt-6 rounded-2xl border border-neutral-800 bg-black p-5">
               <h3 className="font-semibold">Usage by Model Today</h3>
@@ -1080,67 +1263,52 @@ async function removeMember(userId: string) {
             </div>
 
             <div className="mt-6 rounded-2xl border border-neutral-800 bg-black p-5">
-  <h3 className="font-semibold mb-4">Usage Trend</h3>
+              <h3 className="font-semibold mb-4">Usage Trend</h3>
+              {usage?.usageByDay?.length ? (
+                <div style={{ width: "100%", height: 260, minHeight: 260 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={usage.usageByDay}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#262626" />
+                      <XAxis dataKey="date" tick={{ fontSize: 12, fill: "#a3a3a3" }} />
+                      <YAxis tick={{ fontSize: 12, fill: "#a3a3a3" }} />
+                      <Tooltip />
+                      <Line type="monotone" dataKey="tokens_used" strokeWidth={2} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <p className="text-sm text-neutral-500">No data yet</p>
+              )}
+            </div>
 
-  {usage?.usageByDay?.length ? (
-    <div style={{ width: "100%", height: 260, minHeight: 260 }}>
-      <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={usage.usageByDay}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#262626" />
-          <XAxis
-            dataKey="date"
-            tick={{ fontSize: 12, fill: "#a3a3a3" }}
-          />
-          <YAxis tick={{ fontSize: 12, fill: "#a3a3a3" }} />
-          <Tooltip />
-          <Line
-            type="monotone"
-            dataKey="tokens_used"
-            strokeWidth={2}
-          />
-        </LineChart>
-      </ResponsiveContainer>
-    </div>
-  ) : (
-    <p className="text-sm text-neutral-500">No data yet</p>
-  )}
-</div>
-<div className="mt-6 rounded-2xl border border-neutral-800 bg-black p-5">
-  <h3 className="font-semibold mb-4">Usage by Provider</h3>
-
-  {usage?.providerUsage?.length ? (
-    <div style={{ width: "100%", height: 260, minHeight: 260 }}> 
-      <ResponsiveContainer width="100%" height={260}>
-        <BarChart data={usage.providerUsage}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#262626" />
-          <XAxis
-            dataKey="provider"
-            tick={{ fontSize: 12, fill: "#a3a3a3" }}
-          />
-          <YAxis tick={{ fontSize: 12, fill: "#a3a3a3" }} />
-          <Tooltip />
-          <Bar dataKey="usedToday" radius={[4, 4, 0, 0]} />
-        </BarChart>
-      </ResponsiveContainer>
-    </div>
-  ) : (
-    <p className="text-sm text-neutral-500">No provider usage yet</p>
-  )}
-</div>
+            <div className="mt-6 rounded-2xl border border-neutral-800 bg-black p-5">
+              <h3 className="font-semibold mb-4">Usage by Provider</h3>
+              {usage?.providerUsage?.length ? (
+                <div style={{ width: "100%", height: 260, minHeight: 260 }}>
+                  <ResponsiveContainer width="100%" height={260}>
+                    <BarChart data={usage.providerUsage}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#262626" />
+                      <XAxis dataKey="provider" tick={{ fontSize: 12, fill: "#a3a3a3" }} />
+                      <YAxis tick={{ fontSize: 12, fill: "#a3a3a3" }} />
+                      <Tooltip />
+                      <Bar dataKey="usedToday" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <p className="text-sm text-neutral-500">No provider usage yet</p>
+              )}
+            </div>
           </aside>
         </div>
       )}
 
-      {/* ── Project Settings Modal ───────────────────────────────────────── */}
+      {/* Project Settings Modal */}
       {showSettings && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
           <div className="w-[700px] max-w-full rounded-2xl border border-neutral-800 bg-black p-6">
+            <h2 className="text-lg font-semibold mb-4">Project Settings</h2>
 
-            <h2 className="text-lg font-semibold mb-4">
-              Project Settings
-            </h2>
-
-            {/* Name */}
             <input
               value={editName}
               onChange={(e) => setEditName(e.target.value)}
@@ -1148,7 +1316,6 @@ async function removeMember(userId: string) {
               placeholder="Project name"
             />
 
-            {/* Description */}
             <textarea
               value={editDescription}
               onChange={(e) => setEditDescription(e.target.value)}
@@ -1157,7 +1324,6 @@ async function removeMember(userId: string) {
               placeholder="Description"
             />
 
-            {/* Markdown Toolbar */}
             <div className="flex gap-2 mb-2 text-sm">
               <button
                 type="button"
@@ -1203,7 +1369,6 @@ async function removeMember(userId: string) {
               </button>
             </div>
 
-            {/* Instructions */}
             <textarea
               value={editInstructions}
               onChange={(e) => setEditInstructions(e.target.value)}
@@ -1215,7 +1380,6 @@ async function removeMember(userId: string) {
               {editInstructions.length}/4000
             </p>
 
-            {/* Actions */}
             <div className="flex justify-end gap-2 mt-4">
               <button
                 type="button"
@@ -1224,7 +1388,6 @@ async function removeMember(userId: string) {
               >
                 Cancel
               </button>
-
               <button
                 type="button"
                 onClick={saveProjectSettings}
@@ -1237,115 +1400,94 @@ async function removeMember(userId: string) {
         </div>
       )}
 
+      {/* Members Modal */}
       {membersOpen && (
-  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
-    <div className="w-full max-w-xl rounded-2xl border border-neutral-800 bg-neutral-950 p-6 text-white shadow-2xl">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold">Project Members</h2>
-          <p className="text-sm text-neutral-500">
-            Invite teammates and manage access.
-          </p>
-        </div>
-
-        <button
-          onClick={() => setMembersOpen(false)}
-          className="rounded-lg border border-neutral-800 px-3 py-2 text-sm hover:bg-neutral-900"
-        >
-          Close
-        </button>
-      </div>
-
-      {myProjectRole === "owner" && (
-        <div className="mt-6 rounded-2xl border border-neutral-800 bg-black p-4">
-          <p className="text-sm font-medium">Invite teammate</p>
-
-          <div className="mt-3 flex flex-col gap-3 sm:flex-row">
-            <input
-              value={inviteEmail}
-              onChange={(e) => setInviteEmail(e.target.value)}
-              placeholder="teammate@example.com"
-              className="min-w-0 flex-1 rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm outline-none placeholder:text-neutral-600"
-            />
-
-            <select
-              value={inviteRole}
-              onChange={(e) =>
-                setInviteRole(e.target.value as "editor" | "viewer")
-              }
-              className="rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm outline-none"
-            >
-              <option value="viewer">Viewer</option>
-              <option value="editor">Editor</option>
-            </select>
-
-            <button
-              onClick={inviteMember}
-              className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-black hover:bg-neutral-200"
-            >
-              Invite
-            </button>
-          </div>
-
-          <p className="mt-2 text-xs text-neutral-500">
-            The user must already have a CoWork.ai account.
-          </p>
-        </div>
-      )}
-
-      {myProjectRole !== "owner" && (
-        <div className="mt-6 rounded-2xl border border-neutral-800 bg-black p-4 text-sm text-neutral-400">
-          You can view members, but only the project owner can invite or remove teammates.
-        </div>
-      )}
-
-      <div className="mt-6 space-y-3">
-        {members.length === 0 ? (
-          <p className="text-sm text-neutral-500">No members found.</p>
-        ) : (
-          members.map((member) => (
-            <div
-              key={member.id}
-              className="flex items-center justify-between rounded-2xl border border-neutral-800 bg-black px-4 py-3"
-            >
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+          <div className="w-full max-w-xl rounded-2xl border border-neutral-800 bg-neutral-950 p-6 text-white shadow-2xl">
+            <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium">{member.email}</p>
-                {myProjectRole === "owner" && member.role !== "owner" ? (
-  <select
-    value={member.role}
-    onChange={(e) =>
-      updateMemberRole(
-        member.id,
-        e.target.value as "editor" | "viewer"
-      )
-    }
-    className="mt-1 rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1 text-xs capitalize text-neutral-300 outline-none"
-  >
-    <option value="viewer">Viewer</option>
-    <option value="editor">Editor</option>
-  </select>
-) : (
-  <p className="text-xs capitalize text-neutral-500">
-    {member.role}
-  </p>
-)}
+                <h2 className="text-lg font-semibold">Project Members</h2>
+                <p className="text-sm text-neutral-500">
+                  Invite teammates and manage access.
+                </p>
               </div>
+              <button
+                onClick={() => setMembersOpen(false)}
+                className="rounded-lg border border-neutral-800 px-3 py-2 text-sm hover:bg-neutral-900"
+              >
+                Close
+              </button>
+            </div>
 
-              {myProjectRole === "owner" && member.role !== "owner" && (
-                <button
-                  onClick={() => removeMember(member.id)}
-                  className="rounded-lg border border-red-900 px-3 py-1.5 text-xs text-red-300 hover:bg-red-950"
-                >
-                  Remove
-                </button>
+            {myProjectRole === "owner" && (
+              <div className="mt-6 rounded-2xl border border-neutral-800 bg-black p-4">
+                <p className="text-sm font-medium">Invite teammate</p>
+                <div className="mt-3 flex flex-col gap-3 sm:flex-row">
+                  <input
+                    value={inviteEmail}
+                    onChange={(e) => setInviteEmail(e.target.value)}
+                    placeholder="teammate@example.com"
+                    className="min-w-0 flex-1 rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm outline-none placeholder:text-neutral-600"
+                  />
+                  <select
+                    value={inviteRole}
+                    onChange={(e) =>
+                      setInviteRole(e.target.value as "editor" | "viewer")
+                    }
+                    className="rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm outline-none"
+                  >
+                    <option value="viewer">Viewer</option>
+                    <option value="editor">Editor</option>
+                  </select>
+                  <button
+                    onClick={inviteMember}
+                    className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-black hover:bg-neutral-200"
+                  >
+                    Invite
+                  </button>
+                </div>
+                <p className="mt-2 text-xs text-neutral-500">
+                  The user must already have a CoWork.ai account.
+                </p>
+              </div>
+            )}
+
+            {myProjectRole !== "owner" && (
+              <div className="mt-6 rounded-2xl border border-neutral-800 bg-black p-4 text-sm text-neutral-400">
+                You can view members, but only the project owner can invite or remove teammates.
+              </div>
+            )}
+
+            <div className="mt-6 space-y-3">
+              {members.length === 0 ? (
+                <p className="text-sm text-neutral-500">No members found.</p>
+              ) : (
+                members.map((member) => (
+                  <div
+                    key={member.id}
+                    className="flex items-center justify-between rounded-2xl border border-neutral-800 bg-black px-4 py-3"
+                  >
+                    <div>
+                      <p className="text-sm font-medium">{member.email}</p>
+                      <p className="text-xs capitalize text-neutral-500">
+                        {member.role}
+                      </p>
+                    </div>
+                    {myProjectRole === "owner" && member.role !== "owner" && (
+                      <button
+                        onClick={() => removeMember(member.id)}
+                        className="rounded-lg border border-red-900 px-3 py-1.5 text-xs text-red-300 hover:bg-red-950"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                ))
               )}
             </div>
-          ))
-        )}
-      </div>
-    </div>
-  </div>
-)}
+          </div>
+        </div>
+      )}
     </main>
   );
 }

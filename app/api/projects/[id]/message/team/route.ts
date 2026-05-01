@@ -25,8 +25,10 @@ type RouteParams = {
 
 type WorkType = "research" | "execution" | "reviewing" | "reasoning";
 
+// Step 3 — chatId is now required
 const teamSchema = z.object({
   content: z.string().min(1),
+  chatId: z.string().uuid(),
 });
 
 function getDefaultProviderModel(provider: string, workType: WorkType) {
@@ -133,8 +135,6 @@ async function getProviderCredentials({
   };
 }
 
-
-
 export async function POST(req: NextRequest, context: RouteParams) {
   try {
     const authUser = getAuthUser(req);
@@ -158,24 +158,23 @@ export async function POST(req: NextRequest, context: RouteParams) {
     }
 
     const access = await getProjectAccess({
-  projectId,
-  userId: authUser.userId,
-});
+      projectId,
+      userId: authUser.userId,
+    });
 
-if (!canEditProject(access.role)) {
-  return NextResponse.json(
-    { error: "Viewer access cannot send messages." },
-    { status: 403 }
-  );
-}
+    if (!canEditProject(access.role)) {
+      return NextResponse.json(
+        { error: "Viewer access cannot send messages." },
+        { status: 403 }
+      );
+    }
 
-const project = await sql`
-  SELECT id, instructions
-  FROM projects
-  WHERE id = ${projectId}
-  LIMIT 1
-`;
-    
+    const project = await sql`
+      SELECT id, instructions
+      FROM projects
+      WHERE id = ${projectId}
+      LIMIT 1
+    `;
 
     if (project.length === 0) {
       return NextResponse.json({ error: "Project not found." }, { status: 404 });
@@ -191,8 +190,30 @@ const project = await sql`
       );
     }
 
-    const { content } = parsed.data;
+    // Step 3 — destructure chatId
+    const { content, chatId } = parsed.data;
 
+    // Step 4 — verify chat belongs to project and user has access
+    const chatRows = await sql`
+      SELECT id, visibility
+      FROM chats
+      WHERE id = ${chatId}
+      AND project_id = ${projectId}
+      LIMIT 1
+    `;
+
+    if (chatRows.length === 0) {
+      return NextResponse.json({ error: "Chat not found." }, { status: 404 });
+    }
+
+    if (access.role !== "owner" && chatRows[0].visibility !== "public") {
+      return NextResponse.json(
+        { error: "You do not have access to this private chat." },
+        { status: 403 }
+      );
+    }
+
+    // Step 5 — keep memory_summary project-level for now
     const optimizedContext = await getOptimizedProjectContext({ projectId });
 
     const instructions = project[0]?.instructions?.trim();
@@ -324,9 +345,11 @@ Reviewing: ${reviewingProvider}/${reviewingCreds.model}
 -->
 `.trim();
 
+    // Step 6 — insert user message with chat_id
     await sql`
       INSERT INTO contexts (
         project_id,
+        chat_id,
         role,
         model,
         content,
@@ -334,6 +357,7 @@ Reviewing: ${reviewingProvider}/${reviewingCreds.model}
       )
       VALUES (
         ${projectId},
+        ${chatId},
         'user',
         null,
         ${content},
@@ -341,9 +365,11 @@ Reviewing: ${reviewingProvider}/${reviewingCreds.model}
       )
     `;
 
+    // Step 6 — insert assistant message with chat_id
     const assistantMessage = await sql`
       INSERT INTO contexts (
         project_id,
+        chat_id,
         role,
         model,
         content,
@@ -351,12 +377,21 @@ Reviewing: ${reviewingProvider}/${reviewingCreds.model}
       )
       VALUES (
         ${projectId},
+        ${chatId},
         'assistant',
         'team-mode',
         ${`${metadata}\n\n${finalAnswer}`},
         ${Math.ceil((plan.length + execution.length + finalAnswer.length) / 4)}
       )
       RETURNING id, role, model, content, tokens_used, timestamp
+    `;
+
+    // Step 7 — update chat timestamp
+    await sql`
+      UPDATE chats
+      SET updated_at = CURRENT_TIMESTAMP
+      WHERE id = ${chatId}
+      AND project_id = ${projectId}
     `;
 
     await sql`

@@ -16,6 +16,11 @@ const inviteSchema = z.object({
   role: z.enum(["editor", "viewer"]).default("viewer"),
 });
 
+const updateMemberRoleSchema = z.object({
+  userId: z.string().uuid(),
+  role: z.enum(["editor", "viewer"]),
+});
+
 const deleteSchema = z.object({
   userId: z.string().uuid(),
 });
@@ -60,6 +65,72 @@ export async function GET(req: NextRequest, context: RouteParams) {
   });
 }
 
+export async function PATCH(req: NextRequest, context: RouteParams) {
+  const authUser = getAuthUser(req);
+
+  if (!authUser) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
+  const { id: projectId } = await context.params;
+
+  const access = await getProjectAccess({
+    projectId,
+    userId: authUser.userId,
+  });
+
+  if (!canManageMembers(access.role)) {
+    return NextResponse.json(
+      { error: "Only the project owner can update member roles." },
+      { status: 403 }
+    );
+  }
+
+  const body = await req.json();
+  const parsed = updateMemberRoleSchema.safeParse(body);
+
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: "Valid user id and role are required." },
+      { status: 400 }
+    );
+  }
+
+  const project = await sql`
+    SELECT user_id
+    FROM projects
+    WHERE id = ${projectId}
+    LIMIT 1
+  `;
+
+  if (project.length === 0) {
+    return NextResponse.json({ error: "Project not found." }, { status: 404 });
+  }
+
+  if (project[0].user_id === parsed.data.userId) {
+    return NextResponse.json(
+      { error: "Owner role cannot be changed." },
+      { status: 400 }
+    );
+  }
+
+  const updated = await sql`
+    UPDATE project_members
+    SET role = ${parsed.data.role}
+    WHERE project_id = ${projectId}
+    AND user_id = ${parsed.data.userId}
+    RETURNING project_id, user_id, role, created_at
+  `;
+
+  if (updated.length === 0) {
+    return NextResponse.json({ error: "Member not found." }, { status: 404 });
+  }
+
+  return NextResponse.json({
+    message: "Member role updated successfully.",
+    member: updated[0],
+  });
+}
 export async function POST(req: NextRequest, context: RouteParams) {
   const authUser = getAuthUser(req);
 

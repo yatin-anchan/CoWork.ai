@@ -26,11 +26,13 @@ export async function GET(req: NextRequest) {
     projects.status,
     projects.created_at,
     projects.updated_at,
+    users.email AS owner_email,
     CASE
       WHEN projects.user_id = ${user.userId} THEN 'owner'
       ELSE project_members.role
     END AS my_role
   FROM projects
+  JOIN users ON users.id = projects.user_id
   LEFT JOIN project_members
     ON project_members.project_id = projects.id
   WHERE projects.user_id = ${user.userId}

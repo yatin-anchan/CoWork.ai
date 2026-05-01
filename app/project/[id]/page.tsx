@@ -39,6 +39,9 @@ type Project = {
   name: string;
   description: string | null;
   instructions: string | null;
+  memory_summary?: string | null;
+  memory_updated_at?: string | null;
+  my_role: "owner" | "editor" | "viewer";
   status: string;
   created_at: string;
   updated_at: string;
@@ -143,6 +146,10 @@ const [myProjectRole, setMyProjectRole] = useState<"owner" | "editor" | "viewer"
 const [inviteEmail, setInviteEmail] = useState("");
 const [inviteRole, setInviteRole] = useState<"editor" | "viewer">("viewer");
 
+const canEditProject = project?.my_role === "owner" || project?.my_role === "editor";
+const canManageProject = project?.my_role === "owner";
+const canSendMessages = project?.my_role === "owner" || project?.my_role === "editor";
+
   // ── Project Settings state ──────────────────────────────────────────────
   const [showSettings, setShowSettings] = useState(false);
   const [editName, setEditName] = useState("");
@@ -244,6 +251,39 @@ async function inviteMember() {
 
   setInviteEmail("");
   setInviteRole("viewer");
+  await fetchMembers();
+}
+
+async function updateMemberRole(
+  userId: string,
+  role: "editor" | "viewer"
+) {
+  const token = getToken();
+
+  if (!token) {
+    router.push("/auth/login");
+    return;
+  }
+
+  const res = await fetch(`/api/projects/${projectId}/members`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      userId,
+      role,
+    }),
+  });
+
+  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    alert(data.error || "Failed to update member role.");
+    return;
+  }
+
   await fetchMembers();
 }
 
@@ -452,6 +492,11 @@ async function removeMember(userId: string) {
  async function handleSendMessage(e: React.FormEvent) {
   e.preventDefault();
 
+  if (!canSendMessages) {
+  alert("Viewer access cannot send messages.");
+  return;
+}
+
   if (!input.trim()) return;
 
   const token = getToken();
@@ -627,17 +672,16 @@ async function removeMember(userId: string) {
         
 
         <div className="flex items-center gap-3">
-
-          <button
+<button
   onClick={async () => {
     setMembersOpen(true);
     await fetchMembers();
   }}
-  title="Invite members"
+  title="Project members"
   className="flex items-center gap-2 rounded-lg border border-neutral-800 px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-900"
 >
   <UserPlus size={16} />
-  Invite
+  {canManageProject ? "Invite" : "Members"}
 </button>
 
           {/* ── Project Settings button ── */}
@@ -715,12 +759,14 @@ async function removeMember(userId: string) {
               >
                 API Manager
               </button>
-              <button
-            onClick={() => setShowSettings(true)}
-            className="w-full rounded-xl px-4 py-2.5 text-left text-sm text-neutral-300 hover:bg-neutral-900"
-          >
-            Project Settings
-          </button>
+              {canEditProject && (
+  <button
+    onClick={() => setShowSettings(true)}
+    className="rounded-lg border border-neutral-800 px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-900"
+  >
+    Project Settings
+  </button>
+)}
             </div>
 
             <div className="mt-8 rounded-2xl border border-neutral-800 bg-black p-4 text-sm">
@@ -807,17 +853,23 @@ async function removeMember(userId: string) {
                   <Plus size={22} />
                 </button>
                 <input
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  placeholder="Message CoWork.ai..."
-                  className="flex-1 bg-transparent text-sm text-white outline-none placeholder:text-neutral-600"
-                />
+  value={input}
+  onChange={(e) => setInput(e.target.value)}
+  disabled={!canSendMessages}
+  placeholder={
+    canSendMessages
+      ? "Message CoWork.ai..."
+      : "Viewer access: messaging is disabled"
+  }
+  className="flex-1 bg-transparent text-sm text-white outline-none placeholder:text-neutral-600 disabled:cursor-not-allowed disabled:text-neutral-600"
+/>
                 <button
-                  type="submit"
-                  className="ml-3 rounded-xl bg-white p-2 text-black hover:bg-neutral-200"
-                >
-                  <Send size={18} />
-                </button>
+  type="submit"
+  disabled={isStreaming || !input.trim() || !canSendMessages}
+  className="ml-3 rounded-xl bg-white p-2 text-black hover:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-50"
+>
+  <Send size={18} />
+</button>
               </div>
 
               <div className="mt-4 flex items-center justify-between rounded-xl border border-neutral-800 bg-neutral-950 p-2">
@@ -877,7 +929,10 @@ async function removeMember(userId: string) {
                     >
                       <button
                         type="button"
-                        onClick={() => setSelectedRole(role.value)}
+                        onClick={() => {
+  if (!canEditProject) return;
+  setSelectedRole(role.value);
+}}
                         className="flex min-w-0 flex-1 items-center justify-center gap-2 px-3 py-2.5"
                       >
                         {role.icon}
@@ -894,7 +949,7 @@ async function removeMember(userId: string) {
                           onChange={(e) =>
                             updateRoleProvider(role.value, e.target.value)
                           }
-                          disabled={connectedOptions.length === 0}
+                          disabled={connectedOptions.length === 0 || !canEditProject}
                           title={`Change ${role.value} model`}
                           className="absolute inset-0 cursor-pointer opacity-0 disabled:cursor-not-allowed"
                         >
@@ -911,7 +966,10 @@ async function removeMember(userId: string) {
 
                 <button
                   type="button"
-                  onClick={() => setSelectedRole("auto")}
+                  onClick={() => {
+  if (!canEditProject) return;
+  setSelectedRole("auto");
+}}
                   className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm ${
                     selectedRole === "auto"
                       ? "border-white bg-white text-black"
@@ -1252,9 +1310,25 @@ async function removeMember(userId: string) {
             >
               <div>
                 <p className="text-sm font-medium">{member.email}</p>
-                <p className="text-xs capitalize text-neutral-500">
-                  {member.role}
-                </p>
+                {myProjectRole === "owner" && member.role !== "owner" ? (
+  <select
+    value={member.role}
+    onChange={(e) =>
+      updateMemberRole(
+        member.id,
+        e.target.value as "editor" | "viewer"
+      )
+    }
+    className="mt-1 rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1 text-xs capitalize text-neutral-300 outline-none"
+  >
+    <option value="viewer">Viewer</option>
+    <option value="editor">Editor</option>
+  </select>
+) : (
+  <p className="text-xs capitalize text-neutral-500">
+    {member.role}
+  </p>
+)}
               </div>
 
               {myProjectRole === "owner" && member.role !== "owner" && (

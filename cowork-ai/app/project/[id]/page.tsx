@@ -19,6 +19,7 @@ import {
   ShieldCheck,
   User,
   X,
+  UserPlus,
 } from "lucide-react";
 
 import {
@@ -64,6 +65,13 @@ type RoleProviderMap = {
   research: string;
   execution: string;
   reviewing: string;
+};
+
+type ProjectMember = {
+  id: string;
+  email: string;
+  role: "owner" | "editor" | "viewer";
+  created_at: string;
 };
 
 type UsageData = {
@@ -129,6 +137,11 @@ export default function ProjectChatPage() {
   const [usage, setUsage] = useState<UsageData | null>(null);
   const [messageMode, setMessageMode] = useState<"single" | "team">("single");
   const [isStreaming, setIsStreaming] = useState(false);
+  const [membersOpen, setMembersOpen] = useState(false);
+const [members, setMembers] = useState<ProjectMember[]>([]);
+const [myProjectRole, setMyProjectRole] = useState<"owner" | "editor" | "viewer" | null>(null);
+const [inviteEmail, setInviteEmail] = useState("");
+const [inviteRole, setInviteRole] = useState<"editor" | "viewer">("viewer");
 
   // ── Project Settings state ──────────────────────────────────────────────
   const [showSettings, setShowSettings] = useState(false);
@@ -178,6 +191,93 @@ export default function ProjectChatPage() {
     const data = await res.json();
     setUsage(data);
   }
+
+  async function fetchMembers() {
+  const token = getToken();
+  if (!token) return;
+
+  const res = await fetch(`/api/projects/${projectId}/members`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!res.ok) return;
+
+  const data = await res.json();
+
+  setMembers(data.members || []);
+  setMyProjectRole(data.myRole || null);
+}
+
+async function inviteMember() {
+  const token = getToken();
+
+  if (!token) {
+    router.push("/auth/login");
+    return;
+  }
+
+  if (!inviteEmail.trim()) {
+    alert("Enter an email address.");
+    return;
+  }
+
+  const res = await fetch(`/api/projects/${projectId}/members`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      email: inviteEmail.trim(),
+      role: inviteRole,
+    }),
+  });
+
+  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    alert(data.error || "Failed to invite member.");
+    return;
+  }
+
+  setInviteEmail("");
+  setInviteRole("viewer");
+  await fetchMembers();
+}
+
+async function removeMember(userId: string) {
+  const token = getToken();
+
+  if (!token) {
+    router.push("/auth/login");
+    return;
+  }
+
+  const confirmed = confirm("Remove this member from the project?");
+  if (!confirmed) return;
+
+  const res = await fetch(`/api/projects/${projectId}/members`, {
+    method: "DELETE",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      userId,
+    }),
+  });
+
+  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    alert(data.error || "Failed to remove member.");
+    return;
+  }
+
+  await fetchMembers();
+}
 
   async function fetchRoleAssignments() {
     const token = getToken();
@@ -524,14 +624,25 @@ export default function ProjectChatPage() {
           </div>
         </div>
 
+        
+
         <div className="flex items-center gap-3">
-          {/* ── Project Settings button ── */}
+
           <button
-            onClick={() => setShowSettings(true)}
-            className="rounded-lg border border-neutral-700 px-3 py-1 text-sm hover:bg-neutral-800"
-          >
-            Project Settings
-          </button>
+  onClick={async () => {
+    setMembersOpen(true);
+    await fetchMembers();
+  }}
+  title="Invite members"
+  className="flex items-center gap-2 rounded-lg border border-neutral-800 px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-900"
+>
+  <UserPlus size={16} />
+  Invite
+</button>
+
+          {/* ── Project Settings button ── */}
+
+          
 
           <button
             onClick={() => setUsageOpen(true)}
@@ -605,11 +716,11 @@ export default function ProjectChatPage() {
                 API Manager
               </button>
               <button
-                onClick={() => router.push("/settings")}
-                className="w-full rounded-xl px-4 py-2.5 text-left text-sm text-neutral-300 hover:bg-neutral-900"
-              >
-                Settings
-              </button>
+            onClick={() => setShowSettings(true)}
+            className="w-full rounded-xl px-4 py-2.5 text-left text-sm text-neutral-300 hover:bg-neutral-900"
+          >
+            Project Settings
+          </button>
             </div>
 
             <div className="mt-8 rounded-2xl border border-neutral-800 bg-black p-4 text-sm">
@@ -1067,6 +1178,100 @@ export default function ProjectChatPage() {
           </div>
         </div>
       )}
+
+      {membersOpen && (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+    <div className="w-full max-w-xl rounded-2xl border border-neutral-800 bg-neutral-950 p-6 text-white shadow-2xl">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold">Project Members</h2>
+          <p className="text-sm text-neutral-500">
+            Invite teammates and manage access.
+          </p>
+        </div>
+
+        <button
+          onClick={() => setMembersOpen(false)}
+          className="rounded-lg border border-neutral-800 px-3 py-2 text-sm hover:bg-neutral-900"
+        >
+          Close
+        </button>
+      </div>
+
+      {myProjectRole === "owner" && (
+        <div className="mt-6 rounded-2xl border border-neutral-800 bg-black p-4">
+          <p className="text-sm font-medium">Invite teammate</p>
+
+          <div className="mt-3 flex flex-col gap-3 sm:flex-row">
+            <input
+              value={inviteEmail}
+              onChange={(e) => setInviteEmail(e.target.value)}
+              placeholder="teammate@example.com"
+              className="min-w-0 flex-1 rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm outline-none placeholder:text-neutral-600"
+            />
+
+            <select
+              value={inviteRole}
+              onChange={(e) =>
+                setInviteRole(e.target.value as "editor" | "viewer")
+              }
+              className="rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm outline-none"
+            >
+              <option value="viewer">Viewer</option>
+              <option value="editor">Editor</option>
+            </select>
+
+            <button
+              onClick={inviteMember}
+              className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-black hover:bg-neutral-200"
+            >
+              Invite
+            </button>
+          </div>
+
+          <p className="mt-2 text-xs text-neutral-500">
+            The user must already have a CoWork.ai account.
+          </p>
+        </div>
+      )}
+
+      {myProjectRole !== "owner" && (
+        <div className="mt-6 rounded-2xl border border-neutral-800 bg-black p-4 text-sm text-neutral-400">
+          You can view members, but only the project owner can invite or remove teammates.
+        </div>
+      )}
+
+      <div className="mt-6 space-y-3">
+        {members.length === 0 ? (
+          <p className="text-sm text-neutral-500">No members found.</p>
+        ) : (
+          members.map((member) => (
+            <div
+              key={member.id}
+              className="flex items-center justify-between rounded-2xl border border-neutral-800 bg-black px-4 py-3"
+            >
+              <div>
+                <p className="text-sm font-medium">{member.email}</p>
+                <p className="text-xs capitalize text-neutral-500">
+                  {member.role}
+                </p>
+              </div>
+
+              {myProjectRole === "owner" && member.role !== "owner" && (
+                <button
+                  onClick={() => removeMember(member.id)}
+                  className="rounded-lg border border-red-900 px-3 py-1.5 text-xs text-red-300 hover:bg-red-950"
+                >
+                  Remove
+                </button>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  </div>
+)}
     </main>
   );
 }

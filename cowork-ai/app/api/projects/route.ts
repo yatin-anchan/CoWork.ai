@@ -18,11 +18,25 @@ export async function GET(req: NextRequest) {
     }
 
     const projects = await sql`
-      SELECT id, name, description, instructions, status, created_at, updated_at
-      FROM projects
-      WHERE user_id = ${user.userId}
-      ORDER BY updated_at DESC
-    `;
+  SELECT DISTINCT
+    projects.id,
+    projects.name,
+    projects.description,
+    projects.instructions,
+    projects.status,
+    projects.created_at,
+    projects.updated_at,
+    CASE
+      WHEN projects.user_id = ${user.userId} THEN 'owner'
+      ELSE project_members.role
+    END AS my_role
+  FROM projects
+  LEFT JOIN project_members
+    ON project_members.project_id = projects.id
+  WHERE projects.user_id = ${user.userId}
+     OR project_members.user_id = ${user.userId}
+  ORDER BY projects.updated_at DESC
+`;
 
     return NextResponse.json({ projects });
   } catch (error) {

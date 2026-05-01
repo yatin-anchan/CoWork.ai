@@ -15,6 +15,8 @@ type Project = {
   status: string;
   created_at: string;
   updated_at: string;
+  owner_email: string;
+my_role: "owner" | "editor" | "viewer";
 };
 
 export default function DashboardPage() {
@@ -226,10 +228,22 @@ export default function DashboardPage() {
               >
                 <div className="flex items-start justify-between gap-6">
                   <div>
-                    <h3 className="text-xl font-semibold">{project.name}</h3>
+                    <h3 className="text-xl font-semibold">{project.name} &nbsp;
+                     {project.my_role !== "owner" && (
+    <span className="rounded-full border border-neutral-700 px-2 py-0.5 text-xs text-neutral-400">
+      Shared
+    </span>
+  )}<span className="rounded-full border border-neutral-800 px-2 py-0.5 text-xs capitalize text-neutral-500">
+    {project.my_role}
+  </span></h3>
                     <p className="mt-2 text-neutral-400">
                       {project.description || "No description"}
                     </p>
+                    {project.my_role !== "owner" && (
+  <p className="mt-2 text-xs text-neutral-500">
+    Owner: {project.owner_email}
+  </p>
+)}
                     <p className="mt-3 text-sm text-neutral-500">
                       Updated: {new Date(project.updated_at).toLocaleString()}
                     </p>

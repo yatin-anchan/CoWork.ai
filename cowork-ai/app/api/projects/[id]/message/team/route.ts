@@ -8,10 +8,16 @@ import {
   ChatMessage,
   callAIProvider,
 } from "@/lib/services/aiClient";
+
 import {
   getOptimizedProjectContext,
   maybeUpdateProjectMemory,
 } from "@/lib/services/memory";
+
+import {
+  canEditProject,
+  getProjectAccess,
+} from "@/lib/auth/projectAccess";
 
 type RouteParams = {
   params: Promise<{ id: string }>;
@@ -127,6 +133,8 @@ async function getProviderCredentials({
   };
 }
 
+
+
 export async function POST(req: NextRequest, context: RouteParams) {
   try {
     const authUser = getAuthUser(req);
@@ -149,13 +157,25 @@ export async function POST(req: NextRequest, context: RouteParams) {
       );
     }
 
-    const project = await sql`
-      SELECT id, instructions
-      FROM projects
-      WHERE id = ${projectId}
-      AND user_id = ${authUser.userId}
-      LIMIT 1
-    `;
+    const access = await getProjectAccess({
+  projectId,
+  userId: authUser.userId,
+});
+
+if (!canEditProject(access.role)) {
+  return NextResponse.json(
+    { error: "Viewer access cannot send messages." },
+    { status: 403 }
+  );
+}
+
+const project = await sql`
+  SELECT id, instructions
+  FROM projects
+  WHERE id = ${projectId}
+  LIMIT 1
+`;
+    
 
     if (project.length === 0) {
       return NextResponse.json({ error: "Project not found." }, { status: 404 });

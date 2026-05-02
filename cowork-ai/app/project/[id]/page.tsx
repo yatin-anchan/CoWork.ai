@@ -779,6 +779,10 @@ export default function ProjectChatPage() {
   const activeChatIdRef = useRef<string | null>(null);
   const [editingChatTitle, setEditingChatTitle] = useState(false);
   const [chatTitleDraft, setChatTitleDraft] = useState("");
+
+  const [exportOpen, setExportOpen] = useState(false);
+const [exportIncludeQuestions, setExportIncludeQuestions] = useState(true);
+
   const [showSettings, setShowSettings] = useState(false);
   const [editName, setEditName] = useState("");
   const [editDescription, setEditDescription] = useState("");
@@ -815,6 +819,45 @@ export default function ProjectChatPage() {
       usage.connectedProviders.some((connected) => connected.provider === provider.value)
     );
   }
+
+  async function exportChat() {
+  if (!activeChatId) return;
+
+  const token = getToken();
+  if (!token) return;
+
+  const res = await fetch(
+    `/api/projects/${projectId}/chats/${activeChatId}/export`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        includeQuestions: exportIncludeQuestions,
+      }),
+    }
+  );
+
+  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    alert(data.error || "Failed to export chat.");
+    return;
+  }
+
+  const blob = new Blob([data.content], { type: "text/plain" });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "chat-export.txt";
+  a.click();
+
+  URL.revokeObjectURL(url);
+  setExportOpen(false);
+}
 
   async function copyToClipboard(text: string) {
     try { await navigator.clipboard.writeText(text); }
@@ -1190,6 +1233,11 @@ export default function ProjectChatPage() {
             <UserPlus size={13} />
             <span>{canManageProject ? "Invite" : "Members"}</span>
           </button>
+          <button
+            onClick={() => setExportOpen(true)}
+            className="cw-nav-btn"> 
+            Export
+          </button>
           <button onClick={() => setUsageOpen(true)} className="cw-nav-btn">
             <BarChart3 size={13} />
             <span>Usage</span>
@@ -1369,6 +1417,7 @@ export default function ProjectChatPage() {
                           <button type="button" onClick={() => copyToClipboard(message.content)} className="cw-action-btn">
                             Copy
                           </button>
+                          
                           {message.role === "assistant" && isUuid(message.id) && (
                             <button type="button" onClick={() => retryAssistantMessage(message.id)} className="cw-action-btn">
                               Retry
@@ -1673,6 +1722,60 @@ export default function ProjectChatPage() {
           </aside>
         </div>
       )}
+
+      {exportOpen && (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+    <div className="w-full max-w-md rounded-2xl border border-neutral-800 bg-neutral-950 p-6 text-white shadow-2xl">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold">Export Chat</h2>
+
+        <button
+          onClick={() => setExportOpen(false)}
+          className="rounded-lg border border-neutral-800 px-3 py-1.5 text-sm hover:bg-neutral-900"
+        >
+          Close
+        </button>
+      </div>
+
+      <div className="mt-5 space-y-3">
+        <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-neutral-800 bg-black p-4">
+          <input
+            type="radio"
+            checked={exportIncludeQuestions}
+            onChange={() => setExportIncludeQuestions(true)}
+          />
+          <div>
+            <p className="text-sm font-medium">Export with questions</p>
+            <p className="text-xs text-neutral-500">
+              Includes user prompts and assistant responses.
+            </p>
+          </div>
+        </label>
+
+        <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-neutral-800 bg-black p-4">
+          <input
+            type="radio"
+            checked={!exportIncludeQuestions}
+            onChange={() => setExportIncludeQuestions(false)}
+          />
+          <div>
+            <p className="text-sm font-medium">Export responses only</p>
+            <p className="text-xs text-neutral-500">
+              Includes only assistant responses.
+            </p>
+          </div>
+        </label>
+      </div>
+
+      <button
+        onClick={exportChat}
+        className="mt-5 w-full rounded-xl bg-white px-4 py-2.5 text-sm font-medium text-black hover:bg-neutral-200"
+      >
+        Download TXT
+      </button>
+    </div>
+  </div>
+)}
 
       {/* ── PROJECT SETTINGS MODAL ── */}
       {showSettings && (

@@ -53,12 +53,22 @@ export async function GET(req: NextRequest, context: RouteParams) {
     }
 
     const contexts = await sql`
-      SELECT id, role, model, content, tokens_used, timestamp
-      FROM contexts
-      WHERE project_id = ${projectId}
-      AND chat_id = ${chatId}
-      ORDER BY timestamp ASC
-    `;
+  SELECT
+    id,
+    parent_message_id,
+    reply_to_message_id,
+    version_number,
+    active_version,
+    role,
+    model,
+    content,
+    tokens_used,
+    timestamp
+  FROM contexts
+  WHERE project_id = ${projectId}
+  AND chat_id = ${chatId}
+  ORDER BY timestamp ASC
+`;
 
     return NextResponse.json({ chat, contexts });
   } catch (error: any) {

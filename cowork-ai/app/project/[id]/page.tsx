@@ -820,11 +820,8 @@ const [exportIncludeQuestions, setExportIncludeQuestions] = useState(true);
     );
   }
 
-  async function exportChat() {
-  if (!activeChatId) return;
-
+  async function exportChat(format: "pdf" | "txt") {
   const token = getToken();
-  if (!token) return;
 
   const res = await fetch(
     `/api/projects/${projectId}/chats/${activeChatId}/export`,
@@ -836,27 +833,27 @@ const [exportIncludeQuestions, setExportIncludeQuestions] = useState(true);
       },
       body: JSON.stringify({
         includeQuestions: exportIncludeQuestions,
+        format,
       }),
     }
   );
 
-  const data = await res.json().catch(() => ({}));
-
   if (!res.ok) {
-    alert(data.error || "Failed to export chat.");
+    const err = await res.json().catch(() => ({}));
+    alert(err.error || "Export failed");
     return;
   }
 
-  const blob = new Blob([data.content], { type: "text/plain" });
-  const url = URL.createObjectURL(blob);
+  const blob = await res.blob();
 
+  const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
+
   a.href = url;
-  a.download = "chat-export.txt";
+  a.download = format === "pdf" ? "chat.pdf" : "chat.txt";
   a.click();
 
   URL.revokeObjectURL(url);
-  setExportOpen(false);
 }
 
   async function copyToClipboard(text: string) {
@@ -1767,12 +1764,21 @@ const [exportIncludeQuestions, setExportIncludeQuestions] = useState(true);
         </label>
       </div>
 
-      <button
-        onClick={exportChat}
-        className="mt-5 w-full rounded-xl bg-white px-4 py-2.5 text-sm font-medium text-black hover:bg-neutral-200"
-      >
-        Download TXT
-      </button>
+      <div className="mt-5 flex gap-2">
+  <button
+    onClick={() => exportChat("pdf")}
+    className="w-full rounded-xl bg-white px-4 py-2.5 text-sm text-black"
+  >
+    Download PDF
+  </button>
+
+  <button
+    onClick={() => exportChat("txt")}
+    className="w-full rounded-xl border border-neutral-700 px-4 py-2.5 text-sm text-neutral-300"
+  >
+    TXT
+  </button>
+</div>
     </div>
   </div>
 )}

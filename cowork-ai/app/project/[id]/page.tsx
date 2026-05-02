@@ -17,9 +17,12 @@ import {
   Send,
   Settings,
   ShieldCheck,
+  Sun,
+  Moon,
   User,
   X,
   UserPlus,
+  Zap,
 } from "lucide-react";
 
 import {
@@ -34,6 +37,8 @@ import {
   YAxis,
 } from "recharts";
 
+// ─── Types (unchanged) ──────────────────────────────────────────────────────
+
 type Chat = {
   id: string;
   project_id: string;
@@ -42,8 +47,8 @@ type Chat = {
   visibility: "public" | "private";
   created_at: string;
   updated_at: string;
-  creator_email?: string;       // ← add
-  creator_role?: string;        // ← add
+  creator_email?: string;
+  creator_role?: string;
 };
 
 type Project = {
@@ -61,6 +66,10 @@ type Project = {
 
 type ContextMessage = {
   id: string;
+  parent_message_id: string | null;
+  reply_to_message_id: string | null;
+  version_number: number;
+  active_version: boolean;
   role: "user" | "assistant";
   model: string | null;
   content: string;
@@ -68,12 +77,7 @@ type ContextMessage = {
   timestamp: string;
 };
 
-type SelectedRole =
-  | "reasoning"
-  | "research"
-  | "execution"
-  | "reviewing"
-  | "auto";
+type SelectedRole = "reasoning" | "research" | "execution" | "reviewing" | "auto";
 
 type RoleProviderMap = {
   reasoning: string;
@@ -94,28 +98,13 @@ type UsageData = {
   totalCostToday: number;
   mostUsedModel: string | null;
   teamModeUsage: number;
-  usageByModel: {
-    model: string;
-    provider: string;
-    tokens_used: number;
-    cost: number;
-  }[];
-  usageByDay: {
-    date: string;
-    tokens_used: number;
-  }[];
-  connectedProviders: {
-    provider: string;
-    status: string;
-  }[];
-  providerUsage: {
-    provider: string;
-    limit: number;
-    usedToday: number;
-    remaining: number;
-    costToday: number;
-  }[];
+  usageByModel: { model: string; provider: string; tokens_used: number; cost: number }[];
+  usageByDay: { date: string; tokens_used: number }[];
+  connectedProviders: { provider: string; status: string }[];
+  providerUsage: { provider: string; limit: number; usedToday: number; remaining: number; costToday: number }[];
 };
+
+// ─── Constants ──────────────────────────────────────────────────────────────
 
 const providerOptions = [
   { value: "google", label: "Gemini" },
@@ -126,20 +115,644 @@ const providerOptions = [
   { value: "perplexity", label: "Perplexity" },
 ];
 
-const roleButtons: {
-  value: keyof RoleProviderMap;
-  icon: React.ReactNode;
-}[] = [
-  { value: "reasoning", icon: <Brain size={17} /> },
-  { value: "research", icon: <FileSearch size={17} /> },
-  { value: "execution", icon: <Code2 size={17} /> },
-  { value: "reviewing", icon: <ShieldCheck size={17} /> },
+const roleButtons: { value: keyof RoleProviderMap; icon: React.ReactNode; label: string }[] = [
+  { value: "reasoning", icon: <Brain size={14} />, label: "Reasoning" },
+  { value: "research", icon: <FileSearch size={14} />, label: "Research" },
+  { value: "execution", icon: <Code2 size={14} />, label: "Execution" },
+  { value: "reviewing", icon: <ShieldCheck size={14} />, label: "Review" },
 ];
+
+// ─── Role color accents ──────────────────────────────────────────────────────
+const roleAccent: Record<string, string> = {
+  reasoning: "#818cf8",
+  research:  "#34d399",
+  execution: "#f59e0b",
+  reviewing: "#f472b6",
+  auto:      "#60a5fa",
+};
+
+// ─── Theme CSS ───────────────────────────────────────────────────────────────
+
+const themeStyles = `
+  @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:wght@300;400;500&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  :root {
+    --spring: cubic-bezier(0.34,1.56,0.64,1);
+    --ease:   cubic-bezier(0.16,1,0.3,1);
+  }
+
+  .cw-dark {
+    --bg:        #07071e;
+    --bg-s:      rgba(39,39,87,0.42);
+    --bg-g:      rgba(15,14,71,0.52);
+    --bg-e:      rgba(80,80,129,0.2);
+    --bg-i:      rgba(39,39,87,0.58);
+    --b-soft:    rgba(134,134,172,0.14);
+    --b-mid:     rgba(134,134,172,0.3);
+    --b-glow:    rgba(77,159,255,0.42);
+    --b-glow2:   rgba(77,159,255,0.16);
+    --t1:        #FFFFE3;
+    --t2:        #9292b8;
+    --tm:        rgba(134,134,172,0.52);
+    --btn-bg:    #FFFFE3;
+    --btn-fg:    #0F0E47;
+    --accent:    #4D9FFF;
+    --ag:        rgba(77,159,255,0.16);
+    --msg-u-bg:  rgba(255,255,227,0.07);
+    --msg-u-b:   rgba(255,255,227,0.14);
+    --msg-a-bg:  rgba(39,39,87,0.4);
+    --msg-a-b:   rgba(134,134,172,0.16);
+    --side-bg:   rgba(6,6,22,0.72);
+    --modal-bg:  rgba(6,6,22,0.95);
+    --scrollbar: rgba(80,80,129,0.4);
+  }
+
+  .cw-light {
+    --bg:        #eef0fb;
+    --bg-s:      rgba(255,255,255,0.72);
+    --bg-g:      rgba(255,255,255,0.62);
+    --bg-e:      rgba(255,255,255,0.86);
+    --bg-i:      rgba(255,255,255,0.8);
+    --b-soft:    rgba(80,80,129,0.1);
+    --b-mid:     rgba(80,80,129,0.22);
+    --b-glow:    rgba(77,159,255,0.52);
+    --b-glow2:   rgba(77,159,255,0.14);
+    --t1:        #1a1848;
+    --t2:        #505081;
+    --tm:        rgba(80,80,129,0.48);
+    --btn-bg:    #272757;
+    --btn-fg:    #FFFFE3;
+    --accent:    #3d8fe8;
+    --ag:        rgba(77,159,255,0.12);
+    --msg-u-bg:  rgba(39,39,87,0.06);
+    --msg-u-b:   rgba(39,39,87,0.13);
+    --msg-a-bg:  rgba(255,255,255,0.88);
+    --msg-a-b:   rgba(80,80,129,0.12);
+    --side-bg:   rgba(230,232,248,0.8);
+    --modal-bg:  rgba(235,237,252,0.97);
+    --scrollbar: rgba(80,80,129,0.22);
+  }
+
+  .cw-root {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px;
+    color: var(--t1);
+    background: var(--bg);
+    height: 100vh;
+    overflow: hidden;
+    transition: background 0.5s var(--ease), color 0.4s;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+  }
+
+  /* Scrollbar */
+  .cw-root *::-webkit-scrollbar { width: 3px; height: 3px; }
+  .cw-root *::-webkit-scrollbar-track { background: transparent; }
+  .cw-root *::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 99px; }
+
+  /* Ambient orbs */
+  .cw-ambient { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
+  .cw-orb { position: absolute; border-radius: 50%; filter: blur(88px); animation: cwOrbF 20s ease-in-out infinite; will-change: transform; }
+  .cw-orb1 { width: 560px; height: 560px; background: rgba(77,159,255,0.09); top: -140px; left: -100px; animation-delay: 0s; }
+  .cw-orb2 { width: 420px; height: 420px; background: rgba(134,134,172,0.07); bottom: -120px; right: -80px; animation-delay: -8s; }
+  .cw-orb3 { width: 300px; height: 300px; background: rgba(77,159,255,0.04); top: 42%; left: 52%; animation-delay: -14s; }
+  @keyframes cwOrbF {
+    0%,100% { transform: translate(0,0) scale(1); }
+    33%      { transform: translate(28px,-34px) scale(1.04); }
+    66%      { transform: translate(-18px,26px) scale(0.97); }
+  }
+
+  /* Navbar */
+  .cw-navbar {
+    display: flex; align-items: center; justify-content: space-between;
+    height: 56px; padding: 0 18px; flex-shrink: 0; z-index: 100;
+    background: var(--bg-g);
+    backdrop-filter: blur(28px) saturate(180%);
+    -webkit-backdrop-filter: blur(28px) saturate(180%);
+    border-bottom: 1px solid var(--b-soft);
+    transition: background 0.5s;
+    position: relative;
+  }
+  .cw-logo {
+    width: 32px; height: 32px;
+    background: linear-gradient(135deg, #505081, #4D9FFF);
+    border-radius: 9px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Syne', sans-serif; font-weight: 800; font-size: 12px; color: #fff;
+    box-shadow: 0 0 18px rgba(77,159,255,0.22);
+    transition: box-shadow 0.3s, transform 0.3s var(--spring);
+    flex-shrink: 0;
+  }
+  .cw-logo:hover { box-shadow: 0 0 30px rgba(77,159,255,0.44); transform: scale(1.08) rotate(-4deg); }
+  .cw-brand-title { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 15px; color: var(--t1); letter-spacing: -0.3px; }
+  .cw-brand-sub { font-size: 10px; color: var(--tm); letter-spacing: 0.5px; }
+
+  .cw-nav-btn {
+    display: flex; align-items: center; gap: 5px;
+    padding: 6px 11px;
+    background: var(--bg-e); border: 1px solid var(--b-soft); border-radius: 10px;
+    color: var(--t2); font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 500;
+    cursor: pointer; white-space: nowrap;
+    transition: all 0.22s var(--ease);
+  }
+  .cw-nav-btn:hover { background: var(--bg-s); border-color: var(--b-mid); color: var(--t1); transform: translateY(-1px); }
+
+  /* Theme toggle */
+  .cw-theme-toggle {
+    position: relative; width: 50px; height: 26px;
+    background: var(--bg-e); border: 1px solid var(--b-mid); border-radius: 99px;
+    cursor: pointer; transition: background 0.4s, border-color 0.4s; flex-shrink: 0;
+  }
+  .cw-theme-toggle::after {
+    content: ''; position: absolute; top: 3px; left: 3px;
+    width: 18px; height: 18px; background: var(--t1); border-radius: 50%;
+    transition: transform 0.4s var(--spring), background 0.4s;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+  }
+  .cw-light .cw-theme-toggle::after { transform: translateX(22px); }
+
+  /* Body layout */
+  .cw-body { display: flex; flex: 1; min-height: 0; overflow: hidden; position: relative; z-index: 1; }
+
+  /* Icon sidebar */
+  .cw-icon-sidebar {
+    width: 54px; flex-shrink: 0;
+    background: var(--side-bg);
+    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    border-right: 1px solid var(--b-soft);
+    display: flex; flex-direction: column; align-items: center; justify-content: space-between;
+    padding: 12px 0; z-index: 10; transition: background 0.5s;
+  }
+  .cw-icon-btn {
+    width: 36px; height: 36px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 10px; border: none;
+    background: transparent; color: var(--t2); cursor: pointer;
+    transition: all 0.22s var(--ease);
+  }
+  .cw-icon-btn:hover { background: var(--bg-e); color: var(--t1); transform: scale(1.1); }
+  .cw-icon-btn.active { background: var(--bg-e); color: var(--accent); box-shadow: 0 0 12px rgba(77,159,255,0.2); }
+
+  /* Expanded sidebar */
+  .cw-sidebar {
+    width: 252px; flex-shrink: 0;
+    background: var(--side-bg);
+    backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
+    border-right: 1px solid var(--b-soft);
+    padding: 16px 12px; display: flex; flex-direction: column; gap: 12px;
+    overflow-y: auto;
+    transition: width 0.35s var(--ease), opacity 0.28s, transform 0.35s var(--ease), background 0.5s;
+    animation: cwSideIn 0.35s var(--ease);
+  }
+  .cw-sidebar.collapsed { width: 0; padding: 0; opacity: 0; overflow: hidden; pointer-events: none; transform: translateX(-10px); }
+  @keyframes cwSideIn { from { transform: translateX(-16px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+  .cw-proj-card {
+    background: var(--bg-e); border: 1px solid var(--b-soft); border-radius: 14px;
+    padding: 11px 13px; transition: border-color 0.2s;
+  }
+  .cw-proj-card:hover { border-color: var(--b-mid); }
+  .cw-proj-name { font-family: 'Syne', sans-serif; font-weight: 600; font-size: 12.5px; color: var(--t1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cw-proj-desc { font-size: 11px; color: var(--tm); margin-top: 3px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.5; }
+
+  .cw-sec-label { font-size: 9.5px; font-weight: 600; letter-spacing: 0.9px; text-transform: uppercase; color: var(--tm); padding: 0 4px; }
+
+  .cw-side-btn {
+    display: flex; align-items: center; gap: 8px;
+    width: 100%; padding: 8px 10px;
+    border-radius: 10px; border: 1px solid transparent;
+    background: transparent; color: var(--t2);
+    font-family: 'DM Sans', sans-serif; font-size: 12.5px; font-weight: 500;
+    cursor: pointer; text-align: left;
+    transition: all 0.2s var(--ease); white-space: nowrap;
+  }
+  .cw-side-btn:hover { background: var(--bg-e); border-color: var(--b-soft); color: var(--t1); transform: translateX(3px); }
+  .cw-side-btn.primary { background: var(--btn-bg); color: var(--btn-fg); font-weight: 600; border: none; box-shadow: 0 4px 16px rgba(0,0,0,0.14); }
+  .cw-side-btn.primary:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.2); }
+  .cw-side-btn.danger { color: #f87171; }
+  .cw-side-btn.danger:hover { background: rgba(248,113,113,0.1); border-color: rgba(248,113,113,0.2); }
+
+  .cw-token-card {
+    background: var(--bg-g); backdrop-filter: blur(12px);
+    border: 1px solid var(--b-soft); border-radius: 14px;
+    padding: 13px; margin-top: auto;
+  }
+  .cw-token-label { font-size: 10px; color: var(--tm); letter-spacing: 0.5px; text-transform: uppercase; font-weight: 500; }
+  .cw-token-value { font-family: 'Syne', sans-serif; font-size: 26px; font-weight: 700; color: var(--t1); margin: 3px 0; }
+  .cw-token-meta { font-size: 11px; color: var(--tm); line-height: 1.7; }
+  .cw-active-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 8px; background: var(--ag);
+    border: 1px solid rgba(77,159,255,0.28); border-radius: 99px;
+    font-size: 10.5px; color: var(--accent); margin-top: 6px;
+  }
+  .cw-pulse { width: 5px; height: 5px; background: var(--accent); border-radius: 50%; animation: cwPulse 2s ease-in-out infinite; }
+  @keyframes cwPulse { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:0.4; transform:scale(0.7); } }
+
+  /* Chat main */
+  .cw-chat-main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* Chat header */
+  .cw-chat-header {
+    padding: 13px 22px; border-bottom: 1px solid var(--b-soft); flex-shrink: 0;
+    display: flex; align-items: center; justify-content: space-between;
+    background: var(--bg-g); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    transition: background 0.5s;
+  }
+  .cw-chat-title-btn {
+    font-family: 'Syne', sans-serif; font-weight: 600; font-size: 14.5px; color: var(--t1);
+    background: transparent; border: 1px solid transparent; border-radius: 7px;
+    padding: 3px 7px; cursor: pointer;
+    transition: all 0.2s;
+  }
+  .cw-chat-title-btn:hover { border-color: var(--b-mid); background: var(--bg-e); }
+  .cw-chat-title-btn.inactive { cursor: default; }
+  .cw-chat-title-btn.inactive:hover { border-color: transparent; background: transparent; }
+  .cw-chat-title-input {
+    font-family: 'Syne', sans-serif; font-size: 14.5px; font-weight: 600; color: var(--t1);
+    background: var(--bg-e); border: 1px solid var(--b-glow); border-radius: 8px;
+    padding: 3px 10px; outline: none;
+    box-shadow: 0 0 0 3px var(--b-glow2);
+  }
+  .cw-title-hint { font-size: 10.5px; color: var(--tm); padding-left: 7px; margin-top: 2px; }
+
+  .cw-vis-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 9px; background: var(--bg-e); border: 1px solid var(--b-soft); border-radius: 99px;
+    font-size: 10.5px; color: var(--t2);
+  }
+
+  /* Messages */
+  .cw-messages { flex: 1; overflow-y: auto; padding: 22px; display: flex; flex-direction: column; gap: 14px; }
+
+  /* Empty state */
+  .cw-empty {
+    flex: 1; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; text-align: center; gap: 14px;
+    animation: cwFadeUp 0.6s var(--ease);
+  }
+  @keyframes cwFadeUp { from { opacity:0; transform:translateY(18px); } to { opacity:1; transform:translateY(0); } }
+  .cw-empty-icon {
+    width: 54px; height: 54px;
+    background: linear-gradient(135deg, #505081, #4D9FFF);
+    border-radius: 16px; display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 0 28px rgba(77,159,255,0.28);
+    animation: cwGlow 3s ease-in-out infinite;
+  }
+  @keyframes cwGlow { 0%,100% { box-shadow: 0 0 20px rgba(77,159,255,0.24); } 50% { box-shadow: 0 0 42px rgba(77,159,255,0.44); } }
+  .cw-empty-title { font-family: 'Syne', sans-serif; font-size: 17px; font-weight: 700; color: var(--t1); }
+  .cw-empty-sub { font-size: 12.5px; color: var(--t2); max-width: 280px; line-height: 1.6; }
+
+  /* Message groups */
+  .cw-msg-group { display: flex; flex-direction: column; animation: cwMsgIn 0.38s var(--ease); }
+  @keyframes cwMsgIn { from { opacity:0; transform:translateY(10px) scale(0.98); } to { opacity:1; transform:translateY(0) scale(1); } }
+
+  .cw-bubble {
+    border-radius: 16px; padding: 11px 15px;
+    line-height: 1.65; font-size: 13.5px; position: relative;
+    transition: transform 0.2s var(--ease), box-shadow 0.2s;
+  }
+  .cw-bubble:hover { transform: translateY(-1px); box-shadow: 0 6px 22px rgba(0,0,0,0.1); }
+
+  .cw-bubble-user {
+    margin-left: auto; max-width: 78%;
+    background: var(--msg-u-bg); border: 1px solid var(--msg-u-b); color: var(--t1);
+  }
+  .cw-bubble-ai {
+    margin-right: auto; max-width: 78%;
+    background: var(--msg-a-bg); border: 1px solid var(--msg-a-b); color: var(--t1);
+    backdrop-filter: blur(12px);
+  }
+
+  .cw-model-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px; background: var(--bg-e); border: 1px solid var(--b-soft); border-radius: 99px;
+    font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--t2);
+    margin-top: 6px; margin-left: 2px;
+  }
+
+  .cw-msg-actions { display: flex; gap: 5px; margin-top: 7px; opacity: 0; transition: opacity 0.2s; }
+  .cw-msg-group:hover .cw-msg-actions { opacity: 1; }
+  .cw-action-btn {
+    padding: 3px 9px; border-radius: 6px; border: 1px solid var(--b-soft);
+    background: var(--bg-e); color: var(--t2);
+    font-size: 10.5px; font-family: 'DM Sans', sans-serif;
+    cursor: pointer; transition: all 0.18s;
+  }
+  .cw-action-btn:hover { background: var(--bg-s); border-color: var(--b-mid); color: var(--t1); }
+
+  .cw-ver-nav { display: flex; align-items: center; gap: 7px; margin-top: 7px; font-size: 10.5px; color: var(--tm); }
+  .cw-ver-btn {
+    width: 22px; height: 22px; border-radius: 6px; border: 1px solid var(--b-soft);
+    background: var(--bg-e); color: var(--t2); font-size: 14px;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    transition: all 0.18s;
+  }
+  .cw-ver-btn:hover { background: var(--bg-s); color: var(--t1); }
+  .cw-ver-btn:disabled { opacity: 0.3; cursor: default; }
+
+  /* Streaming dots */
+  .cw-dots { display: inline-flex; gap: 3px; padding: 4px 0; }
+  .cw-dots span {
+    width: 5px; height: 5px; background: var(--accent); border-radius: 50%;
+    animation: cwBounce 1.2s ease-in-out infinite;
+  }
+  .cw-dots span:nth-child(2) { animation-delay: 0.2s; }
+  .cw-dots span:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes cwBounce { 0%,80%,100% { transform:translateY(0); } 40% { transform:translateY(-6px); } }
+
+  /* Edit area */
+  .cw-edit-area {
+    width: 100%; min-height: 80px; padding: 9px 12px;
+    background: var(--bg-i); border: 1px solid var(--b-glow); border-radius: 10px;
+    color: var(--t1); font-family: 'DM Sans', sans-serif; font-size: 13px;
+    resize: vertical; outline: none; box-shadow: 0 0 0 3px var(--b-glow2);
+  }
+  .cw-edit-actions { display: flex; gap: 7px; margin-top: 7px; }
+
+  /* Input area */
+  .cw-input-area {
+    flex-shrink: 0; border-top: 1px solid var(--b-soft);
+    background: var(--bg-g); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
+    padding: 14px 22px 18px; transition: background 0.5s;
+  }
+  .cw-input-max { max-width: 900px; margin: 0 auto; }
+
+  .cw-input-shell {
+    display: flex; align-items: center; gap: 9px;
+    background: var(--bg-i); border: 1px solid var(--b-mid); border-radius: 20px;
+    padding: 9px 11px 9px 15px;
+    transition: border-color 0.25s, box-shadow 0.25s;
+  }
+  .cw-input-shell:focus-within { border-color: var(--b-glow); box-shadow: 0 0 0 4px var(--b-glow2); }
+
+  .cw-attach-btn {
+    width: 32px; height: 32px; border-radius: 9px; border: 1px solid var(--b-soft);
+    background: var(--bg-e); color: var(--t2);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; flex-shrink: 0; transition: all 0.2s;
+  }
+  .cw-attach-btn:hover { background: var(--bg-s); color: var(--t1); transform: rotate(90deg); }
+
+  .cw-text-input {
+    flex: 1; background: transparent; border: none; outline: none;
+    font-family: 'DM Sans', sans-serif; font-size: 13.5px; color: var(--t1);
+    resize: none; line-height: 1.5;
+  }
+  .cw-text-input::placeholder { color: var(--tm); }
+  .cw-text-input:disabled { cursor: not-allowed; color: var(--tm); }
+
+  .cw-send-btn {
+    width: 34px; height: 34px; border-radius: 10px; border: none;
+    background: var(--btn-bg); color: var(--btn-fg);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; flex-shrink: 0;
+    transition: all 0.25s var(--spring);
+  }
+  .cw-send-btn:hover { transform: scale(1.08) rotate(-5deg); }
+  .cw-send-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+  /* Mode row */
+  .cw-mode-row {
+    margin-top: 9px; display: flex; align-items: center; justify-content: space-between;
+    background: var(--bg-e); border: 1px solid var(--b-soft); border-radius: 12px; padding: 5px 12px 5px 5px;
+  }
+  .cw-mode-tabs { display: flex; background: var(--bg-s); border-radius: 9px; padding: 3px; gap: 2px; }
+  .cw-mode-tab {
+    padding: 6px 14px; border-radius: 7px; border: none; background: transparent;
+    font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 500; color: var(--t2);
+    cursor: pointer; transition: all 0.2s;
+  }
+  .cw-mode-tab.active { background: var(--btn-bg); color: var(--btn-fg); }
+  .cw-mode-hint { font-size: 11px; color: var(--tm); }
+
+  /* Role row */
+  .cw-role-row { margin-top: 9px; display: grid; grid-template-columns: repeat(5,1fr); gap: 7px; }
+
+  .cw-role-card {
+    position: relative; display: flex; align-items: center;
+    border-radius: 11px; border: 1px solid var(--b-soft); background: var(--bg-e);
+    overflow: hidden; transition: all 0.25s var(--ease); cursor: pointer;
+  }
+  .cw-role-card:hover { border-color: var(--b-mid); transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,0.1); }
+  .cw-role-card.active { border-color: var(--b-glow); background: var(--ag); box-shadow: 0 0 14px var(--b-glow2); }
+  .cw-role-inner { flex: 1; display: flex; align-items: center; gap: 5px; padding: 8px 9px; border: none; background: transparent; cursor: pointer; }
+  .cw-role-icon { color: var(--t2); flex-shrink: 0; transition: color 0.2s; }
+  .cw-role-card.active .cw-role-icon { color: var(--accent); }
+  .cw-role-name { font-size: 11.5px; font-weight: 500; color: var(--t2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color 0.2s; }
+  .cw-role-card.active .cw-role-name { color: var(--accent); }
+  .cw-role-chevron { padding: 0 7px 0 0; color: var(--tm); position: relative; }
+  .cw-role-select { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
+
+  /* Warning */
+  .cw-warn {
+    margin-top: 9px; padding: 9px 13px; border-radius: 10px;
+    border: 1px solid rgba(251,191,36,0.28); background: rgba(251,191,36,0.07);
+    color: #fbbf24; font-size: 12px; line-height: 1.5;
+  }
+
+  /* Modal backdrop */
+  .cw-backdrop {
+    position: fixed; inset: 0; z-index: 200;
+    background: rgba(4,4,18,0.65); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    display: flex; align-items: center; justify-content: center; padding: 20px;
+    animation: cwFade 0.2s ease;
+  }
+  @keyframes cwFade { from { opacity:0; } to { opacity:1; } }
+
+  .cw-modal {
+    background: var(--modal-bg); backdrop-filter: blur(32px); -webkit-backdrop-filter: blur(32px);
+    border: 1px solid var(--b-mid); border-radius: 24px;
+    width: 100%; max-width: 550px; max-height: 90vh; overflow-y: auto;
+    padding: 26px; box-shadow: 0 24px 64px rgba(0,0,0,0.3);
+    animation: cwModalIn 0.3s var(--spring);
+  }
+  .cw-modal-xl { max-width: 700px; }
+  @keyframes cwModalIn { from { opacity:0; transform:scale(0.95) translateY(14px); } to { opacity:1; transform:scale(1) translateY(0); } }
+
+  .cw-modal-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 18px; }
+  .cw-modal-title { font-family: 'Syne', sans-serif; font-size: 16.5px; font-weight: 700; color: var(--t1); }
+  .cw-modal-sub { font-size: 12px; color: var(--t2); margin-top: 3px; }
+
+  .cw-modal-close {
+    width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--b-soft);
+    background: var(--bg-e); color: var(--t2); display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: all 0.2s; flex-shrink: 0;
+  }
+  .cw-modal-close:hover { background: var(--bg-s); color: var(--t1); transform: rotate(90deg); }
+
+  .cw-modal-section { background: var(--bg-e); border: 1px solid var(--b-soft); border-radius: 14px; padding: 15px; margin-bottom: 12px; }
+  .cw-modal-label { font-size: 11.5px; font-weight: 600; color: var(--t2); letter-spacing: 0.3px; margin-bottom: 9px; }
+
+  .cw-modal-input {
+    width: 100%; padding: 8px 11px;
+    background: var(--bg-i); border: 1px solid var(--b-soft); border-radius: 9px;
+    color: var(--t1); font-family: 'DM Sans', sans-serif; font-size: 13px; outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s; margin-bottom: 7px;
+  }
+  .cw-modal-input:focus { border-color: var(--b-glow); box-shadow: 0 0 0 3px var(--b-glow2); }
+
+  .cw-modal-textarea {
+    width: 100%; padding: 8px 11px;
+    background: var(--bg-i); border: 1px solid var(--b-soft); border-radius: 9px;
+    color: var(--t1); font-family: 'DM Sans', sans-serif; font-size: 13px; outline: none;
+    resize: none; transition: border-color 0.2s, box-shadow 0.2s; margin-bottom: 7px;
+  }
+  .cw-modal-textarea:focus { border-color: var(--b-glow); box-shadow: 0 0 0 3px var(--b-glow2); }
+
+  .cw-modal-footer { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+
+  .cw-btn-cancel {
+    padding: 8px 16px; border-radius: 9px; border: 1px solid var(--b-soft);
+    background: var(--bg-e); color: var(--t2); font-family: 'DM Sans', sans-serif; font-size: 12.5px; font-weight: 500;
+    cursor: pointer; transition: all 0.2s;
+  }
+  .cw-btn-cancel:hover { background: var(--bg-s); color: var(--t1); }
+
+  .cw-btn-save {
+    padding: 8px 18px; border-radius: 9px; border: none;
+    background: var(--btn-bg); color: var(--btn-fg); font-family: 'DM Sans', sans-serif; font-size: 12.5px; font-weight: 600;
+    cursor: pointer; transition: all 0.25s var(--spring);
+  }
+  .cw-btn-save:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,0.18); }
+
+  /* Usage panel */
+  .cw-usage-panel {
+    position: fixed; top: 0; right: 0; bottom: 0; width: 420px; z-index: 200;
+    background: var(--modal-bg); backdrop-filter: blur(32px); -webkit-backdrop-filter: blur(32px);
+    border-left: 1px solid var(--b-mid); overflow-y: auto; padding: 26px 22px;
+    box-shadow: -16px 0 48px rgba(0,0,0,0.2);
+    animation: cwSlideRight 0.35s var(--ease);
+  }
+  @keyframes cwSlideRight { from { transform:translateX(60px); opacity:0; } to { transform:translateX(0); opacity:1; } }
+
+  .cw-usage-stat { background: var(--bg-e); border: 1px solid var(--b-soft); border-radius: 14px; padding: 15px; margin-bottom: 11px; }
+  .cw-usage-val { font-family: 'Syne', sans-serif; font-size: 30px; font-weight: 700; color: var(--t1); }
+  .cw-usage-meta { font-size: 11.5px; color: var(--t2); margin-top: 2px; }
+
+  .cw-prog-row { margin-bottom: 12px; }
+  .cw-prog-header { display: flex; justify-content: space-between; font-size: 12px; color: var(--t2); margin-bottom: 5px; }
+  .cw-prog-bar { height: 5px; background: var(--bg-e); border-radius: 99px; overflow: hidden; }
+  .cw-prog-fill { height: 100%; background: linear-gradient(90deg, #505081, #4D9FFF); border-radius: 99px; transition: width 0.8s var(--ease); }
+
+  .cw-model-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 9px 11px; border-radius: 9px; border: 1px solid var(--b-soft); background: var(--bg-e); margin-bottom: 7px; font-size: 12px;
+  }
+  .cw-model-row-name { color: var(--t1); font-weight: 500; }
+  .cw-model-row-val { color: var(--t2); font-family: 'JetBrains Mono', monospace; font-size: 10.5px; }
+
+  /* Chat list */
+  .cw-chat-item {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 11px 13px; border-radius: 13px; border: 1px solid var(--b-soft); background: var(--bg-e);
+    cursor: pointer; transition: all 0.2s; margin-bottom: 7px;
+  }
+  .cw-chat-item:hover { border-color: var(--b-mid); transform: translateX(3px); }
+  .cw-chat-item.active { border-color: var(--b-glow); background: var(--ag); }
+  .cw-chat-item-title { font-weight: 500; font-size: 13px; color: var(--t1); }
+  .cw-chat-item-meta { font-size: 10.5px; color: var(--tm); margin-top: 2px; }
+  .cw-creator-info { font-size: 10.5px; color: var(--tm); margin-top: 1px; }
+  .cw-creator-badge { display: inline-flex; align-items: center; margin-left: 5px; padding: 1px 6px; border: 1px solid var(--b-soft); border-radius: 99px; font-size: 9.5px; color: var(--t2); }
+
+  /* Member cards */
+  .cw-member-card {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 11px 13px; border-radius: 13px; border: 1px solid var(--b-soft); background: var(--bg-e); margin-bottom: 7px;
+  }
+  .cw-avatar {
+    width: 32px; height: 32px; border-radius: 9px;
+    background: linear-gradient(135deg, #505081, #4D9FFF);
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Syne', sans-serif; font-size: 11px; font-weight: 700; color: #fff; flex-shrink: 0;
+  }
+  .cw-member-email { font-size: 12.5px; font-weight: 500; color: var(--t1); }
+  .cw-member-role { font-size: 10.5px; color: var(--t2); text-transform: capitalize; }
+
+  .cw-role-badge {
+    padding: 2px 8px; border-radius: 99px; font-size: 10px; font-weight: 600; text-transform: capitalize;
+  }
+  .cw-role-badge.owner   { background: rgba(77,159,255,0.14); color: #60a5fa; border: 1px solid rgba(77,159,255,0.24); }
+  .cw-role-badge.editor  { background: rgba(80,80,129,0.14); color: #a5b4fc; border: 1px solid rgba(80,80,129,0.24); }
+  .cw-role-badge.viewer  { background: var(--bg-e); color: var(--t2); border: 1px solid var(--b-soft); }
+
+  .cw-btn-remove {
+    padding: 4px 10px; border-radius: 7px; border: 1px solid rgba(248,113,113,0.24);
+    background: rgba(248,113,113,0.07); color: #f87171; font-size: 11px; cursor: pointer; transition: all 0.2s;
+  }
+  .cw-btn-remove:hover { background: rgba(248,113,113,0.14); }
+
+  .cw-invite-row { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 9px; }
+  .cw-invite-input {
+    flex: 1; min-width: 170px; padding: 7px 11px;
+    background: var(--bg-i); border: 1px solid var(--b-soft); border-radius: 9px;
+    color: var(--t1); font-family: 'DM Sans', sans-serif; font-size: 12.5px; outline: none;
+    transition: border-color 0.2s;
+  }
+  .cw-invite-input:focus { border-color: var(--b-glow); }
+  .cw-invite-select {
+    padding: 7px 11px; background: var(--bg-e); border: 1px solid var(--b-soft); border-radius: 9px;
+    color: var(--t1); font-family: 'DM Sans', sans-serif; font-size: 12.5px; outline: none; cursor: pointer;
+  }
+  .cw-invite-btn {
+    padding: 7px 15px; border-radius: 9px; border: none;
+    background: var(--btn-bg); color: var(--btn-fg); font-family: 'DM Sans', sans-serif; font-size: 12.5px; font-weight: 600;
+    cursor: pointer; transition: all 0.2s;
+  }
+  .cw-invite-btn:hover { transform: translateY(-1px); }
+
+  .cw-viewer-notice {
+    background: var(--bg-e); border: 1px solid var(--b-soft); border-radius: 13px;
+    padding: 13px 15px; font-size: 12.5px; color: var(--t2); margin-top: 12px;
+  }
+
+  /* Format toolbar */
+  .cw-fmt-btn {
+    padding: 4px 9px; border-radius: 6px; border: 1px solid var(--b-soft);
+    background: var(--bg-e); color: var(--t2); font-size: 12px;
+    cursor: pointer; transition: all 0.18s;
+  }
+  .cw-fmt-btn:hover { background: var(--bg-s); color: var(--t1); }
+
+  /* Visibility select */
+  .cw-vis-select {
+    padding: 4px 9px; border-radius: 8px; border: 1px solid var(--b-soft);
+    background: var(--bg-e); color: var(--t1); font-family: 'DM Sans', sans-serif; font-size: 11.5px; outline: none; cursor: pointer;
+  }
+
+  /* Loading screen */
+  .cw-loading {
+    display: flex; height: 100vh; align-items: center; justify-content: center;
+    background: #07071e; color: #9292b8;
+    font-family: 'Syne', sans-serif; font-size: 15px; gap: 10px;
+  }
+  .cw-loading-dot { width: 6px; height: 6px; background: #4D9FFF; border-radius: 50%; animation: cwPulse 1.4s ease-in-out infinite; }
+  .cw-loading-dot:nth-child(2) { animation-delay: 0.2s; }
+  .cw-loading-dot:nth-child(3) { animation-delay: 0.4s; }
+`;
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function groupMessageVersions(messages: ContextMessage[]) {
+  const groups = new Map<string, ContextMessage[]>();
+  for (const message of messages) {
+    const groupId = message.parent_message_id || message.id;
+    if (!groups.has(groupId)) groups.set(groupId, []);
+    groups.get(groupId)!.push(message);
+  }
+  return Array.from(groups.entries()).map(([groupId, versions]) => {
+    const sortedVersions = versions.sort((a, b) => a.version_number - b.version_number);
+    const activeIndex = Math.max(sortedVersions.findIndex((m) => m.active_version), 0);
+    return { groupId, versions: sortedVersions, activeIndex, activeMessage: sortedVersions[activeIndex] };
+  });
+}
+
+// ─── Component ───────────────────────────────────────────────────────────────
 
 export default function ProjectChatPage() {
   const router = useRouter();
   const params = useParams();
-
   const projectId = params.id as string;
 
   const [project, setProject] = useState<Project | null>(null);
@@ -157,32 +770,20 @@ export default function ProjectChatPage() {
   const [myProjectRole, setMyProjectRole] = useState<"owner" | "editor" | "viewer" | null>(null);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<"editor" | "viewer">("viewer");
-
-  // Chat states
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editingDraft, setEditingDraft] = useState("");
   const [chats, setChats] = useState<Chat[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [chatListOpen, setChatListOpen] = useState(false);
-
-  // Use a ref so rename callbacks always see the current chatId without stale closure
+  const [selectedVersionByGroup, setSelectedVersionByGroup] = useState<Record<string, number>>({});
   const activeChatIdRef = useRef<string | null>(null);
-  useEffect(() => {
-    activeChatIdRef.current = activeChatId;
-  }, [activeChatId]);
-
-  // Chat title rename states
   const [editingChatTitle, setEditingChatTitle] = useState(false);
   const [chatTitleDraft, setChatTitleDraft] = useState("");
-
-  const canEditProject = project?.my_role === "owner" || project?.my_role === "editor";
-  const canManageProject = project?.my_role === "owner";
-  const canSendMessages = project?.my_role === "owner" || project?.my_role === "editor";
-
-  // Project Settings state
   const [showSettings, setShowSettings] = useState(false);
   const [editName, setEditName] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editInstructions, setEditInstructions] = useState("");
-
+  const [isDark, setIsDark] = useState(true);
   const [roleProviders, setRoleProviders] = useState<RoleProviderMap>({
     reasoning: "google",
     research: "perplexity",
@@ -190,184 +791,100 @@ export default function ProjectChatPage() {
     reviewing: "google",
   });
 
-  function getToken() {
-    return localStorage.getItem("token");
+  useEffect(() => { activeChatIdRef.current = activeChatId; }, [activeChatId]);
+
+  const canEditProject = project?.my_role === "owner" || project?.my_role === "editor";
+  const canManageProject = project?.my_role === "owner";
+  const canSendMessages = project?.my_role === "owner" || project?.my_role === "editor";
+
+  // ─── Utility ──────────────────────────────────────────────────────────────
+
+  function getToken() { return localStorage.getItem("token"); }
+
+  function isUuid(value: string) {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
   }
 
   function getProviderLabel(provider: string) {
-    return (
-      providerOptions.find((item) => item.value === provider)?.label || provider
-    );
+    return providerOptions.find((item) => item.value === provider)?.label || provider;
   }
 
   function getConnectedProviderOptions() {
     if (!usage?.connectedProviders?.length) return [];
     return providerOptions.filter((provider) =>
-      usage.connectedProviders.some(
-        (connected) => connected.provider === provider.value
-      )
+      usage.connectedProviders.some((connected) => connected.provider === provider.value)
     );
   }
 
-  async function retryAssistantMessage(assistantMessageId: string) {
-  if (!activeChatId) {
-    alert("Select a chat first.");
-    return;
-  }
-
-  const assistantIndex = messages.findIndex(
-    (message) => message.id === assistantMessageId
-  );
-
-  if (assistantIndex <= 0) {
-    alert("No previous user message found.");
-    return;
-  }
-
-  const previousUserMessage = [...messages]
-    .slice(0, assistantIndex)
-    .reverse()
-    .find((message) => message.role === "user");
-
-  if (!previousUserMessage) {
-    alert("No previous user message found.");
-    return;
-  }
-
-  const token = getToken();
-
-  if (!token) {
-    router.push("/auth/login");
-    return;
-  }
-
-  setIsStreaming(true);
-
-  setMessages((prev) =>
-    prev.map((message) =>
-      message.id === assistantMessageId
-        ? {
-            ...message,
-            content: "",
-            model:
-              messageMode === "team"
-                ? "team-mode"
-                : selectedRole === "auto"
-                  ? "streaming"
-                  : getProviderLabel(roleProviders[selectedRole]),
-          }
-        : message
-    )
-  );
-
-  try {
-    const endpoint =
-      messageMode === "team"
-        ? `/api/projects/${projectId}/message/team`
-        : `/api/projects/${projectId}/message/stream`;
-
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        content: previousUserMessage.content,
-        selectedRole,
-        chatId: activeChatId,
-      }),
-    });
-
-    if (!res.ok) {
-      const errData = await res.json().catch(() => ({}));
-      alert(errData.error || "Failed to retry message.");
-      return;
-    }
-
-    if (messageMode === "team") {
-      const data = await res.json();
-
-      setMessages((prev) =>
-        prev.map((message) =>
-          message.id === assistantMessageId
-            ? {
-                ...message,
-                model: "team-mode",
-                content: data.assistantMessage?.content || "",
-              }
-            : message
-        )
-      );
-
-      await fetchChatMessages(activeChatId);
-      return;
-    }
-
-    if (!res.body) {
-      alert("Streaming response was empty.");
-      return;
-    }
-
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let streamedText = "";
-
-    while (true) {
-      const { done, value } = await reader.read();
-
-      if (done) break;
-
-      const chunk = decoder.decode(value, { stream: true });
-      streamedText += chunk;
-
-      setMessages((prev) =>
-        prev.map((message) =>
-          message.id === assistantMessageId
-            ? {
-                ...message,
-                content: streamedText,
-              }
-            : message
-        )
-      );
-    }
-
-    await fetchChatMessages(activeChatId);
-  } catch (error) {
-    console.error("Retry error:", error);
-    alert("Failed to retry message.");
-  } finally {
-    setIsStreaming(false);
-    await fetchUsage();
-  }
-}
-
   async function copyToClipboard(text: string) {
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    alert("Failed to copy.");
+    try { await navigator.clipboard.writeText(text); }
+    catch { alert("Failed to copy."); }
   }
-}
+
+  // ─── Message actions ──────────────────────────────────────────────────────
+
+  async function saveEditedMessage(messageId: string) {
+    if (!activeChatId) return;
+    const token = getToken();
+    if (!token) { router.push("/auth/login"); return; }
+    const res = await fetch(`/api/projects/${projectId}/chats/${activeChatId}/messages/${messageId}/edit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ content: editingDraft }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { alert(data.error || "Failed to edit message."); return; }
+    setEditingMessageId(null);
+    setEditingDraft("");
+    await fetchChatMessages(activeChatId);
+  }
+
+  async function retryAssistantMessage(assistantMessageId: string) {
+    if (!activeChatId) { alert("Select a chat first."); return; }
+    const token = getToken();
+    if (!token) { router.push("/auth/login"); return; }
+    setIsStreaming(true);
+    setMessages((prev) => prev.map((m) =>
+      m.id === assistantMessageId
+        ? { ...m, content: "", model: selectedRole === "auto" ? "streaming" : getProviderLabel(roleProviders[selectedRole]) }
+        : m
+    ));
+    try {
+      const res = await fetch(`/api/projects/${projectId}/chats/${activeChatId}/messages/${assistantMessageId}/retry`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ selectedRole }),
+      });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.error || "Failed to retry."); await fetchChatMessages(activeChatId); return; }
+      if (!res.body) { alert("Empty response."); await fetchChatMessages(activeChatId); return; }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let text = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        text += decoder.decode(value, { stream: true });
+        setMessages((prev) => prev.map((m) => m.id === assistantMessageId ? { ...m, content: text } : m));
+      }
+      await fetchChatMessages(activeChatId);
+    } catch (e) { console.error(e); alert("Failed to retry."); await fetchChatMessages(activeChatId); }
+    finally { setIsStreaming(false); await fetchUsage(); }
+  }
+
+  // ─── Fetchers ─────────────────────────────────────────────────────────────
 
   async function fetchUsage() {
     const token = getToken();
     if (!token) return;
-    const res = await fetch("/api/usage", {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const res = await fetch("/api/usage", { headers: { Authorization: `Bearer ${token}` } });
     if (!res.ok) return;
-    const data = await res.json();
-    setUsage(data);
+    setUsage(await res.json());
   }
 
   async function fetchMembers() {
     const token = getToken();
     if (!token) return;
-    const res = await fetch(`/api/projects/${projectId}/members`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const res = await fetch(`/api/projects/${projectId}/members`, { headers: { Authorization: `Bearer ${token}` } });
     if (!res.ok) return;
     const data = await res.json();
     setMembers(data.members || []);
@@ -378,139 +895,91 @@ export default function ProjectChatPage() {
     const token = getToken();
     if (!token) { router.push("/auth/login"); return; }
     if (!inviteEmail.trim()) { alert("Enter an email address."); return; }
-
     const res = await fetch(`/api/projects/${projectId}/members`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({ email: inviteEmail.trim(), role: inviteRole }),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) { alert(data.error || "Failed to invite member."); return; }
-    setInviteEmail("");
-    setInviteRole("viewer");
+    if (!res.ok) { alert(data.error || "Failed to invite."); return; }
+    setInviteEmail(""); setInviteRole("viewer");
     await fetchMembers();
   }
 
   async function removeMember(userId: string) {
     const token = getToken();
     if (!token) { router.push("/auth/login"); return; }
-    const confirmed = confirm("Remove this member from the project?");
-    if (!confirmed) return;
+    if (!confirm("Remove this member from the project?")) return;
     const res = await fetch(`/api/projects/${projectId}/members`, {
       method: "DELETE",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({ userId }),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) { alert(data.error || "Failed to remove member."); return; }
+    if (!res.ok) { alert(data.error || "Failed to remove."); return; }
     await fetchMembers();
   }
 
   async function fetchRoleAssignments() {
     const token = getToken();
     if (!token) return;
-
     const [globalRes, projectRes] = await Promise.all([
       fetch("/api/models/roles", { headers: { Authorization: `Bearer ${token}` } }),
       fetch(`/api/projects/${projectId}/roles`, { headers: { Authorization: `Bearer ${token}` } }),
     ]);
-
-    const nextProviders: RoleProviderMap = {
-      reasoning: "google",
-      research: "perplexity",
-      execution: "groq",
-      reviewing: "google",
-    };
-
-    if (globalRes.ok) {
-      const globalData = await globalRes.json();
-      globalData.roles?.forEach(
-        (item: { role: keyof RoleProviderMap; provider: string }) => {
-          if (item.role in nextProviders) nextProviders[item.role] = item.provider;
-        }
-      );
-    }
-    if (projectRes.ok) {
-      const projectData = await projectRes.json();
-      projectData.roles?.forEach(
-        (item: { role: keyof RoleProviderMap; provider: string }) => {
-          if (item.role in nextProviders) nextProviders[item.role] = item.provider;
-        }
-      );
-    }
-    setRoleProviders(nextProviders);
+    const next: RoleProviderMap = { reasoning: "google", research: "perplexity", execution: "groq", reviewing: "google" };
+    if (globalRes.ok) { const d = await globalRes.json(); d.roles?.forEach((i: any) => { if (i.role in next) next[i.role as keyof RoleProviderMap] = i.provider; }); }
+    if (projectRes.ok) { const d = await projectRes.json(); d.roles?.forEach((i: any) => { if (i.role in next) next[i.role as keyof RoleProviderMap] = i.provider; }); }
+    setRoleProviders(next);
   }
 
   async function fetchProject() {
     const token = getToken();
     if (!token) { router.push("/auth/login"); return; }
-
     try {
-      const res = await fetch(`/api/projects/${projectId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await fetch(`/api/projects/${projectId}`, { headers: { Authorization: `Bearer ${token}` } });
       if (res.status === 401) { localStorage.removeItem("token"); router.push("/auth/login"); return; }
       if (res.status === 404) { router.push("/dashboard"); return; }
-      if (!res.ok) { console.error(`fetchProject failed: ${res.status}`); setLoading(false); return; }
-
+      if (!res.ok) { setLoading(false); return; }
       const text = await res.text();
-      if (!text) { console.error("fetchProject: empty response body"); setLoading(false); return; }
-
+      if (!text) { setLoading(false); return; }
       const data = JSON.parse(text);
       setProject(data.project);
       await fetchRoleAssignments();
       await fetchUsage();
-    } catch (err) {
-      console.error("fetchProject error:", err);
-    } finally {
-      setLoading(false);
-    }
+    } catch (e) { console.error(e); }
+    finally { setLoading(false); }
   }
 
-  // Always pass a real UUID or nothing — never an empty string
   async function fetchChats(currentActiveChatId?: string | null) {
     const token = getToken();
     if (!token) return;
-
     const activeId = currentActiveChatId ?? activeChatIdRef.current ?? null;
     const url = activeId
       ? `/api/projects/${projectId}/chats?activeChatId=${activeId}`
       : `/api/projects/${projectId}/chats`;
-
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
     if (!res.ok) return;
-
     const data = await res.json();
     const nextChats: Chat[] = data.chats || [];
     setChats(nextChats);
-
-    setActiveChatId((prev) => {
-      if (!prev && nextChats.length > 0) return nextChats[0].id;
-      return prev;
-    });
-
+    setActiveChatId((prev) => { if (!prev && nextChats.length > 0) return nextChats[0].id; return prev; });
     return nextChats;
   }
 
   async function fetchChatMessages(chatId: string) {
     const token = getToken();
     if (!token) return;
-
-    const res = await fetch(`/api/projects/${projectId}/chats/${chatId}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const res = await fetch(`/api/projects/${projectId}/chats/${chatId}`, { headers: { Authorization: `Bearer ${token}` } });
     if (!res.ok) return;
-
     const data = await res.json();
     setMessages(data.contexts || []);
+    setSelectedVersionByGroup({});
   }
 
   async function createNewChat() {
     const token = getToken();
     if (!token) return;
-
     const res = await fetch(`/api/projects/${projectId}/chats`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -518,107 +987,67 @@ export default function ProjectChatPage() {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) { alert(data.error || "Failed to create chat."); return; }
-
     const newChat: Chat = data.chat;
-
-    // Inject immediately so the title is available for rename before fetchChats returns
     setChats((prev) => [newChat, ...prev]);
     setActiveChatId(newChat.id);
     activeChatIdRef.current = newChat.id;
     setChatTitleDraft(newChat.title);
     setMessages([]);
-
-    // Sync with server — pass the new id explicitly so it's pinned even though it's empty
+    setSelectedVersionByGroup({});
     await fetchChats(newChat.id);
   }
 
   async function updateChatVisibility(chatId: string, visibility: "public" | "private") {
     const token = getToken();
     if (!token) return;
-
     const res = await fetch(`/api/projects/${projectId}/chats/${chatId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({ visibility }),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) { alert(data.error || "Failed to update chat."); return; }
+    if (!res.ok) { alert(data.error || "Failed to update."); return; }
     await fetchChats();
   }
 
-  // Accept an explicit chatId so this always works even right after creation
   async function updateChatTitle(chatId?: string) {
     const targetId = chatId ?? activeChatIdRef.current;
     if (!targetId || !chatTitleDraft.trim()) return;
     const token = getToken();
     if (!token) return;
-
     const res = await fetch(`/api/projects/${projectId}/chats/${targetId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({ title: chatTitleDraft.trim() }),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) { alert(data.error || "Failed to rename chat."); return; }
-
-    // Real-time optimistic update in both chat header and chat list
-    setChats((prev) =>
-      prev.map((chat) =>
-        chat.id === targetId ? { ...chat, title: data.chat.title } : chat
-      )
-    );
+    if (!res.ok) { alert(data.error || "Failed to rename."); return; }
+    setChats((prev) => prev.map((c) => c.id === targetId ? { ...c, title: data.chat.title } : c));
     setEditingChatTitle(false);
   }
 
   async function deleteChat() {
     if (!activeChatId) return;
-    const confirmed = confirm("Delete this chat and all its messages?");
-    if (!confirmed) return;
+    if (!confirm("Delete this chat and all its messages?")) return;
     const token = getToken();
     if (!token) return;
-
     const res = await fetch(`/api/projects/${projectId}/chats/${activeChatId}`, {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${token}` },
+      method: "DELETE", headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) { alert("Failed to delete chat."); return; }
-
-    setMessages([]);
-    setActiveChatId(null);
-    activeChatIdRef.current = null;
+    setMessages([]); setActiveChatId(null); activeChatIdRef.current = null;
+    setSelectedVersionByGroup({});
     await fetchChats(null);
   }
 
-  // Mount: load project and chats in parallel
-  useEffect(() => {
-    fetchProject();
-    fetchChats();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId]);
+  // ─── Effects ──────────────────────────────────────────────────────────────
 
-  // Load messages when active chat changes
-  useEffect(() => {
-    if (activeChatId) {
-      fetchChatMessages(activeChatId);
-      setEditingChatTitle(false);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeChatId]);
+  useEffect(() => { fetchProject(); fetchChats(); }, [projectId]);
+  useEffect(() => { if (activeChatId) { fetchChatMessages(activeChatId); setEditingChatTitle(false); } }, [activeChatId]);
+  useEffect(() => { const c = chats.find((c) => c.id === activeChatId); if (c) setChatTitleDraft(c.title); }, [activeChatId, chats]);
+  useEffect(() => { if (project) { setEditName(project.name || ""); setEditDescription(project.description || ""); setEditInstructions(project.instructions || ""); } }, [project]);
 
-  // Sync title draft when active chat or chat list changes
-  useEffect(() => {
-    const activeChat = chats.find((chat) => chat.id === activeChatId);
-    if (activeChat) setChatTitleDraft(activeChat.title);
-  }, [activeChatId, chats]);
-
-  // Populate settings fields when project loads
-  useEffect(() => {
-    if (project) {
-      setEditName(project.name || "");
-      setEditDescription(project.description || "");
-      setEditInstructions(project.instructions || "");
-    }
-  }, [project]);
+  // ─── Actions ──────────────────────────────────────────────────────────────
 
   async function updateRoleProvider(role: keyof RoleProviderMap, provider: string) {
     const token = getToken();
@@ -629,7 +1058,7 @@ export default function ProjectChatPage() {
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({ role, provider }),
     });
-    if (!res.ok) { alert("Failed to update project model."); return; }
+    if (!res.ok) { alert("Failed to update model."); return; }
     await fetchRoleAssignments();
   }
 
@@ -638,11 +1067,7 @@ export default function ProjectChatPage() {
     const res = await fetch(`/api/projects/${projectId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({
-        name: editName,
-        description: editDescription,
-        instructions: editInstructions.slice(0, 4000),
-      }),
+      body: JSON.stringify({ name: editName, description: editDescription, instructions: editInstructions.slice(0, 4000) }),
     });
     if (!res.ok) { alert("Failed to update project."); return; }
     await fetchProject();
@@ -654,461 +1079,417 @@ export default function ProjectChatPage() {
     if (!canSendMessages) { alert("Viewer access cannot send messages."); return; }
     if (!activeChatId) { alert("Create or select a chat first."); return; }
     if (!input.trim()) return;
-
     const token = getToken();
     if (!token) { router.push("/auth/login"); return; }
-
     const messageText = input;
     setInput("");
     setIsStreaming(true);
-
-    const tempUserMessage: ContextMessage = {
-      id: `user-${Date.now()}`,
-      role: "user",
-      model: null,
-      content: messageText,
-      tokens_used: Math.ceil(messageText.length / 4),
-      timestamp: new Date().toISOString(),
+    const tempUser: ContextMessage = {
+      id: `user-${Date.now()}`, parent_message_id: null, reply_to_message_id: null,
+      version_number: 1, active_version: true, role: "user", model: null,
+      content: messageText, tokens_used: Math.ceil(messageText.length / 4), timestamp: new Date().toISOString(),
     };
-
-    const tempAssistantMessage: ContextMessage = {
-      id: `assistant-${Date.now()}`,
-      role: "assistant",
-      model:
-        messageMode === "team"
-          ? "team-mode"
-          : selectedRole === "auto"
-            ? "streaming"
-            : getProviderLabel(roleProviders[selectedRole]),
-      content: "",
-      tokens_used: 0,
-      timestamp: new Date().toISOString(),
+    const tempAI: ContextMessage = {
+      id: `assistant-${Date.now()}`, parent_message_id: null, reply_to_message_id: null,
+      version_number: 1, active_version: true, role: "assistant",
+      model: messageMode === "team" ? "team-mode" : selectedRole === "auto" ? "streaming" : getProviderLabel(roleProviders[selectedRole]),
+      content: "", tokens_used: 0, timestamp: new Date().toISOString(),
     };
-
-    setMessages((prev) => [...prev, tempUserMessage, tempAssistantMessage]);
-
+    setMessages((prev) => [...prev, tempUser, tempAI]);
     try {
-      const endpoint =
-        messageMode === "team"
-          ? `/api/projects/${projectId}/message/team`
-          : `/api/projects/${projectId}/message/stream`;
-
+      const endpoint = messageMode === "team"
+        ? `/api/projects/${projectId}/message/team`
+        : `/api/projects/${projectId}/message/stream`;
       const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ content: messageText, selectedRole, chatId: activeChatId }),
       });
-
       if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        alert(errData.error || "Failed to send message.");
-        setMessages((prev) =>
-          prev.filter((m) => m.id !== tempUserMessage.id && m.id !== tempAssistantMessage.id)
-        );
+        const e = await res.json().catch(() => ({}));
+        alert(e.error || "Failed to send.");
+        setMessages((prev) => prev.filter((m) => m.id !== tempUser.id && m.id !== tempAI.id));
         return;
       }
-
       if (messageMode === "team") {
         const data = await res.json();
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === tempAssistantMessage.id
-              ? { ...m, model: "team-mode", content: data.assistantMessage?.content || "" }
-              : m
-          )
-        );
+        setMessages((prev) => prev.map((m) => m.id === tempAI.id ? { ...m, model: "team-mode", content: data.assistantMessage?.content || "" } : m));
         await fetchProject();
         return;
       }
-
       if (!res.body) {
         alert("Streaming response was empty.");
-        setMessages((prev) =>
-          prev.filter((m) => m.id !== tempUserMessage.id && m.id !== tempAssistantMessage.id)
-        );
+        setMessages((prev) => prev.filter((m) => m.id !== tempUser.id && m.id !== tempAI.id));
         return;
       }
-
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
-      let streamedText = "";
-
+      let streamed = "";
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        streamedText += chunk;
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === tempAssistantMessage.id ? { ...m, content: streamedText } : m
-          )
-        );
+        streamed += decoder.decode(value, { stream: true });
+        setMessages((prev) => prev.map((m) => m.id === tempAI.id ? { ...m, content: streamed } : m));
       }
-
       await fetchProject();
-    } catch (error) {
-      console.error("Message send error:", error);
+    } catch (e) {
+      console.error(e);
       alert("Failed to send message.");
-      setMessages((prev) =>
-        prev.filter((m) => m.id !== tempUserMessage.id && m.id !== tempAssistantMessage.id)
-      );
+      setMessages((prev) => prev.filter((m) => m.id !== tempUser.id && m.id !== tempAI.id));
     } finally {
       setIsStreaming(false);
       await fetchUsage();
     }
   }
 
+  // ─── Render ───────────────────────────────────────────────────────────────
+
   if (loading) {
     return (
-      <main className="flex h-screen items-center justify-center bg-black text-white">
-        Loading project...
-      </main>
+      <div className="cw-loading">
+        <style>{themeStyles}</style>
+        <div className="cw-loading-dot" />
+        <div className="cw-loading-dot" />
+        <div className="cw-loading-dot" />
+        <span style={{ marginLeft: 8 }}>Loading project...</span>
+      </div>
     );
   }
 
   const connectedOptions = getConnectedProviderOptions();
+  const messageGroups = groupMessageVersions(messages);
+  const themeClass = isDark ? "cw-dark" : "cw-light";
+  const activeChat = chats.find((c) => c.id === activeChatId);
 
   return (
-    <main className="flex h-screen flex-col overflow-hidden bg-black text-white">
-      <header className="flex h-16 shrink-0 items-center justify-between border-b border-neutral-800 bg-black px-5">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-black">
-            <Bot size={21} />
-          </div>
-          <div>
-            <h1 className="text-lg font-semibold tracking-tight">CoWork.ai</h1>
-            <p className="text-xs text-neutral-500">Multi-AI workspace</p>
+    <div className={`cw-root ${themeClass}`}>
+      <style>{themeStyles}</style>
+
+      {/* Ambient background */}
+      <div className="cw-ambient">
+        <div className="cw-orb cw-orb1" />
+        <div className="cw-orb cw-orb2" />
+        <div className="cw-orb cw-orb3" />
+      </div>
+
+      {/* ── NAVBAR ── */}
+      <header className="cw-navbar">
+        <div style={{ display: "flex", alignItems: "center", gap: 10, zIndex: 1 }}>
+          <div className="cw-logo">CW</div>
+          <div className="cw-brand-text">
+            <div className="cw-brand-title">CoWork.ai</div>
+            <div className="cw-brand-sub">Multi-AI workspace</div>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div style={{ display: "flex", alignItems: "center", gap: 7, zIndex: 1 }}>
           <button
             onClick={async () => { setMembersOpen(true); await fetchMembers(); }}
-            title="Project members"
-            className="flex items-center gap-2 rounded-lg border border-neutral-800 px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-900"
+            className="cw-nav-btn"
           >
-            <UserPlus size={16} />
-            {canManageProject ? "Invite" : "Members"}
+            <UserPlus size={13} />
+            <span>{canManageProject ? "Invite" : "Members"}</span>
           </button>
-          <button
-            onClick={() => setUsageOpen(true)}
-            className="flex items-center gap-2 rounded-lg border border-neutral-800 px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-900"
-          >
-            <BarChart3 size={16} />
-            Usage Analysis
+          <button onClick={() => setUsageOpen(true)} className="cw-nav-btn">
+            <BarChart3 size={13} />
+            <span>Usage</span>
           </button>
+          <button onClick={() => router.push("/dashboard")} className="cw-nav-btn">
+            <LayoutDashboard size={13} />
+            <span>Dashboard</span>
+          </button>
+
+          {/* Theme toggle */}
           <button
-            onClick={() => router.push("/dashboard")}
-            className="rounded-lg border border-neutral-800 px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-900"
+            className="cw-theme-toggle"
+            onClick={() => setIsDark(!isDark)}
+            title="Toggle theme"
+            style={{ position: "relative" }}
           >
-            Dashboard
+            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 5px", pointerEvents: "none" }}>
+              <Sun size={11} style={{ color: isDark ? "rgba(134,134,172,0.4)" : "#f59e0b", transition: "color 0.3s" }} />
+              <Moon size={11} style={{ color: isDark ? "#9292b8" : "rgba(80,80,129,0.35)", transition: "color 0.3s" }} />
+            </div>
           </button>
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1 overflow-hidden">
-        <aside className="flex w-16 shrink-0 flex-col items-center justify-between border-r border-neutral-800 bg-black py-5">
+      {/* ── BODY ── */}
+      <div className="cw-body">
+
+        {/* Icon sidebar */}
+        <aside className="cw-icon-sidebar">
           <button
             onClick={() => setSidebarOpen((v) => !v)}
-            className="rounded-lg p-2 text-neutral-400 hover:bg-neutral-900 hover:text-white"
+            className={`cw-icon-btn ${sidebarOpen ? "active" : ""}`}
           >
-            {sidebarOpen ? <X size={22} /> : <Menu size={22} />}
+            {sidebarOpen ? <X size={17} /> : <Menu size={17} />}
           </button>
-          <div className="space-y-4">
-            <button
-              onClick={() => router.push("/settings")}
-              className="rounded-lg p-2 text-neutral-400 hover:bg-neutral-900 hover:text-white"
-            >
-              <User size={22} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+            <button onClick={() => router.push("/settings")} className="cw-icon-btn" title="Profile">
+              <User size={17} />
             </button>
-            <button
-              onClick={() => router.push("/settings")}
-              className="rounded-lg p-2 text-neutral-400 hover:bg-neutral-900 hover:text-white"
-            >
-              <Settings size={22} />
+            <button onClick={() => router.push("/settings")} className="cw-icon-btn" title="Settings">
+              <Settings size={17} />
             </button>
           </div>
         </aside>
 
-        {sidebarOpen && (
-          <aside className="w-72 shrink-0 border-r border-neutral-800 bg-neutral-950 p-5">
-            <div>
-              <h2 className="truncate text-sm font-semibold text-white">{project?.name}</h2>
-              <p className="mt-1 line-clamp-2 text-xs text-neutral-500">
-                {project?.description || "No description"}
-              </p>
-            </div>
+        {/* Expanded sidebar */}
+        <aside className={`cw-sidebar ${sidebarOpen ? "" : "collapsed"}`}>
+          <div className="cw-proj-card">
+            <div className="cw-proj-name">{project?.name}</div>
+            <div className="cw-proj-desc">{project?.description || "No description"}</div>
+          </div>
 
-            <div className="mt-8 space-y-2">
-              <button
-                onClick={createNewChat}
-                className="w-full rounded-xl bg-white px-4 py-2.5 text-left text-sm font-medium text-black hover:bg-neutral-200"
-              >
-                + New Chat
+          <div>
+            <div className="cw-sec-label" style={{ marginBottom: 8 }}>Workspace</div>
+            <button onClick={createNewChat} className="cw-side-btn primary" style={{ marginBottom: 4 }}>
+              <Plus size={14} /> New Chat
+            </button>
+            <button onClick={() => router.push("/dashboard")} className="cw-side-btn">
+              <LayoutDashboard size={14} /> New Project
+            </button>
+            <button onClick={() => setChatListOpen(true)} className="cw-side-btn">
+              <Menu size={14} /> Chat List
+            </button>
+            <button onClick={deleteChat} className="cw-side-btn danger">
+              <X size={14} /> Delete Chat
+            </button>
+            <button onClick={() => router.push("/api-manager")} className="cw-side-btn">
+              <Zap size={14} /> API Manager
+            </button>
+            {canEditProject && (
+              <button onClick={() => setShowSettings(true)} className="cw-side-btn">
+                <Settings size={14} /> Project Settings
               </button>
-
-              <button
-                onClick={() => router.push("/dashboard")}
-                className="flex w-full items-center gap-2 rounded-xl px-4 py-2.5 text-left text-sm text-neutral-300 hover:bg-neutral-900"
-              >
-                <LayoutDashboard size={16} />
-                New Project
-              </button>
-
-              <button
-                onClick={() => setChatListOpen(true)}
-                className="w-full rounded-xl px-4 py-2.5 text-left text-sm text-neutral-300 hover:bg-neutral-900"
-              >
-                Chat List
-              </button>
-
-              <button
-                onClick={deleteChat}
-                className="w-full rounded-xl px-4 py-2.5 text-left text-sm text-red-400 hover:bg-neutral-900"
-              >
-                Delete Chat
-              </button>
-
-              <button
-                onClick={() => router.push("/api-manager")}
-                className="w-full rounded-xl px-4 py-2.5 text-left text-sm text-neutral-300 hover:bg-neutral-900"
-              >
-                API Manager
-              </button>
-
-              {canEditProject && (
-                <button
-                  onClick={() => setShowSettings(true)}
-                  className="rounded-lg border border-neutral-800 px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-900"
-                >
-                  Project Settings
-                </button>
-              )}
-            </div>
-
-            <div className="mt-8 rounded-2xl border border-neutral-800 bg-black p-4 text-sm">
-              <p className="font-medium text-white">Token Usage</p>
-              <p className="mt-2 text-3xl font-bold">{usage?.totalTokensToday ?? 0}</p>
-              <p className="text-sm text-neutral-500">
-                Cost today: ${usage?.totalCostToday?.toFixed(4) || "0.0000"}
-              </p>
-              <p className="mt-1 text-sm text-neutral-500">
-                Most used: {usage?.mostUsedModel || "None"}
-              </p>
-              <p className="text-sm text-neutral-500">
-                Team Mode used: {usage?.teamModeUsage ?? 0} times
-              </p>
-              <p className="text-neutral-500">
-                Active:{" "}
-                {selectedRole === "auto"
-                  ? "Auto"
-                  : getProviderLabel(roleProviders[selectedRole])}
-              </p>
-            </div>
-          </aside>
-        )}
-
-        <section className="flex min-h-0 flex-1 flex-col overflow-hidden bg-black">
-          {/* Chat header with inline rename */}
-          <div className="shrink-0 border-b border-neutral-800 px-6 py-4">
-            {editingChatTitle ? (
-              <input
-                value={chatTitleDraft}
-                onChange={(e) => setChatTitleDraft(e.target.value)}
-                onBlur={() => updateChatTitle()}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") updateChatTitle();
-                  if (e.key === "Escape") setEditingChatTitle(false);
-                }}
-                autoFocus
-                className="rounded-lg border border-neutral-700 bg-neutral-950 px-2 py-1 text-base font-semibold text-white outline-none"
-              />
-            ) : (
-              <button
-                type="button"
-                onClick={() => activeChatIdRef.current && setEditingChatTitle(true)}
-                title={activeChatIdRef.current ? "Click to rename" : undefined}
-                className={`text-base font-semibold ${
-                  activeChatIdRef.current ? "cursor-pointer hover:underline" : "cursor-default"
-                }`}
-              >
-                {chats.find((c) => c.id === activeChatId)?.title || project?.name || "New Chat"}
-              </button>
-            )}
-            {activeChatId && !editingChatTitle && (
-              <p className="mt-0.5 text-xs text-neutral-600">Click title to rename</p>
             )}
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
-            {messages.length === 0 ? (
-              <div className="flex h-full items-center justify-center text-center">
-                <div className="max-w-md">
-                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-black">
-                    <Bot size={24} />
-                  </div>
-                  <p className="mt-4 text-lg font-semibold">Start with a selected model</p>
-                  <p className="mt-2 text-sm text-neutral-500">
-                    Use the bottom model row to switch providers without opening API Manager.
-                  </p>
+          {/* Token card */}
+          <div className="cw-token-card" style={{ marginTop: "auto" }}>
+            <div className="cw-token-label">Token Usage</div>
+            <div className="cw-token-value">{(usage?.totalTokensToday ?? 0).toLocaleString()}</div>
+            <div className="cw-token-meta">
+              Cost today: ${usage?.totalCostToday?.toFixed(4) || "0.0000"}<br />
+              Most used: {usage?.mostUsedModel || "None"}<br />
+              Team Mode: {usage?.teamModeUsage ?? 0}×
+            </div>
+            <div className="cw-active-badge">
+              <div className="cw-pulse" />
+              {selectedRole === "auto" ? "Auto" : getProviderLabel(roleProviders[selectedRole as keyof RoleProviderMap])}
+            </div>
+          </div>
+        </aside>
+
+        {/* ── MAIN CHAT ── */}
+        <section className="cw-chat-main">
+
+          {/* Chat header */}
+          <div className="cw-chat-header">
+            <div>
+              {editingChatTitle ? (
+                <input
+                  value={chatTitleDraft}
+                  onChange={(e) => setChatTitleDraft(e.target.value)}
+                  onBlur={() => updateChatTitle()}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") updateChatTitle();
+                    if (e.key === "Escape") setEditingChatTitle(false);
+                  }}
+                  autoFocus
+                  className="cw-chat-title-input"
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => activeChatIdRef.current && setEditingChatTitle(true)}
+                  className={`cw-chat-title-btn ${activeChatIdRef.current ? "" : "inactive"}`}
+                >
+                  {activeChat?.title || project?.name || "New Chat"}
+                </button>
+              )}
+              {activeChatId && !editingChatTitle && (
+                <div className="cw-title-hint">Click title to rename</div>
+              )}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span className="cw-vis-chip">
+                <Bot size={10} />
+                {activeChat?.visibility || "public"}
+              </span>
+            </div>
+          </div>
+
+          {/* Messages */}
+          <div className="cw-messages">
+            {messageGroups.length === 0 ? (
+              <div className="cw-empty">
+                <div className="cw-empty-icon">
+                  <Bot size={24} color="#fff" />
+                </div>
+                <div className="cw-empty-title">Select a model and start building</div>
+                <div className="cw-empty-sub">
+                  Choose a role below — Reasoning, Research, Execution, or Reviewing — then send your first message.
                 </div>
               </div>
             ) : (
-              <div className="mx-auto max-w-4xl space-y-5">
-                {messages.map((message) => (
-                  <div
-                    key={message.id}
-                    className={`max-w-[80%] rounded-2xl border px-4 py-3 ${
-                      message.role === "user"
-                        ? "ml-auto border-neutral-700 bg-white text-black"
-                        : "mr-auto border-neutral-800 bg-neutral-950 text-white"
-                    }`}
-                  >
-                   <div className="group">
-  <RichMessage content={message.content} />
+              <div style={{ maxWidth: 880, margin: "0 auto", width: "100%" }}>
+                {messageGroups.map((group) => {
+                  const selectedIndex = selectedVersionByGroup[group.groupId] ?? group.activeIndex;
+                  const message = group.versions[selectedIndex];
+                  const isUser = message.role === "user";
 
-  <div className="mt-3 flex gap-2 opacity-0 transition-opacity group-hover:opacity-100">
-    <button
-      type="button"
-      onClick={() => copyToClipboard(message.content)}
-      className="rounded-lg border border-neutral-700 px-2 py-1 text-xs text-neutral-400 hover:bg-neutral-900 hover:text-white"
-    >
-      Copy
-    </button>
+                  return (
+                    <div key={group.groupId} className="cw-msg-group" style={{ marginBottom: 14 }}>
+                      <div className={`cw-bubble ${isUser ? "cw-bubble-user" : "cw-bubble-ai"}`}>
 
-    {canSendMessages && message.role === "assistant" && (
-      <button
-        type="button"
-        onClick={() => retryAssistantMessage(message.id)}
-        className="rounded-lg border border-neutral-700 px-2 py-1 text-xs text-neutral-400 hover:bg-neutral-900 hover:text-white"
-      >
-        Retry
-      </button>
-    )}
+                        {editingMessageId === message.id ? (
+                          <div>
+                            <textarea
+                              value={editingDraft}
+                              onChange={(e) => setEditingDraft(e.target.value)}
+                              className="cw-edit-area"
+                            />
+                            <div className="cw-edit-actions">
+                              <button type="button" onClick={() => saveEditedMessage(message.id)} className="cw-btn-save" style={{ padding: "5px 14px", fontSize: 12 }}>
+                                Save
+                              </button>
+                              <button type="button" onClick={() => { setEditingMessageId(null); setEditingDraft(""); }} className="cw-btn-cancel" style={{ padding: "5px 12px", fontSize: 12 }}>
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <RichMessage content={message.content} />
+                        )}
 
-    {canSendMessages && message.role === "user" && (
-      <button
-        type="button"
-        onClick={() => setInput(message.content)}
-        className="rounded-lg border border-neutral-700 px-2 py-1 text-xs text-neutral-400 hover:bg-neutral-900 hover:text-white"
-      >
-        Edit
-      </button>
-    )}
-  </div>
-</div>
-                    {message.model && (
-                      <p className="mt-2 text-xs text-neutral-500">Model: {message.model}</p>
-                    )}
-                  </div>
-                ))}
+                        {/* Actions */}
+                        <div className="cw-msg-actions">
+                          <button type="button" onClick={() => copyToClipboard(message.content)} className="cw-action-btn">
+                            Copy
+                          </button>
+                          {message.role === "assistant" && isUuid(message.id) && (
+                            <button type="button" onClick={() => retryAssistantMessage(message.id)} className="cw-action-btn">
+                              Retry
+                            </button>
+                          )}
+                          {canSendMessages && message.role === "user" && (
+                            <button type="button" onClick={() => { setEditingMessageId(message.id); setEditingDraft(message.content); }} className="cw-action-btn">
+                              Edit
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Version nav */}
+                      {group.versions.length > 1 && (
+                        <div className="cw-ver-nav" style={{ paddingLeft: isUser ? 0 : 4, justifyContent: isUser ? "flex-end" : "flex-start" }}>
+                          <button
+                            type="button"
+                            className="cw-ver-btn"
+                            onClick={() => setSelectedVersionByGroup((prev) => ({ ...prev, [group.groupId]: Math.max(selectedIndex - 1, 0) }))}
+                            disabled={selectedIndex === 0}
+                          >‹</button>
+                          <span>{selectedIndex + 1}/{group.versions.length}</span>
+                          <button
+                            type="button"
+                            className="cw-ver-btn"
+                            onClick={() => setSelectedVersionByGroup((prev) => ({ ...prev, [group.groupId]: Math.min(selectedIndex + 1, group.versions.length - 1) }))}
+                            disabled={selectedIndex === group.versions.length - 1}
+                          >›</button>
+                        </div>
+                      )}
+
+                      {/* Model chip */}
+                      {message.model && (
+                        <div style={{ paddingLeft: isUser ? 0 : 4, display: "flex", justifyContent: isUser ? "flex-end" : "flex-start" }}>
+                          <span className="cw-model-chip">
+                            <Bot size={9} />
+                            {message.model}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
 
-          <form
-            onSubmit={handleSendMessage}
-            className="shrink-0 border-t border-neutral-800 bg-black px-6 py-5"
-          >
-            <div className="mx-auto max-w-5xl">
-              <div className="flex items-center rounded-2xl border border-neutral-700 bg-neutral-950 px-4 py-3 shadow-lg">
-                <button
-                  type="button"
-                  className="mr-3 rounded-lg p-2 text-neutral-400 hover:bg-neutral-900 hover:text-white"
-                >
-                  <Plus size={22} />
+          {/* ── INPUT FORM ── */}
+          <form onSubmit={handleSendMessage} className="cw-input-area">
+            <div className="cw-input-max">
+              <div className="cw-input-shell">
+                <button type="button" className="cw-attach-btn">
+                  <Plus size={15} />
                 </button>
                 <input
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   disabled={!canSendMessages}
-                  placeholder={
-                    canSendMessages
-                      ? "Message CoWork.ai..."
-                      : "Viewer access: messaging is disabled"
-                  }
-                  className="flex-1 bg-transparent text-sm text-white outline-none placeholder:text-neutral-600 disabled:cursor-not-allowed disabled:text-neutral-600"
+                  placeholder={canSendMessages ? "Message CoWork.ai..." : "Viewer access: messaging is disabled"}
+                  className="cw-text-input"
                 />
                 <button
                   type="submit"
                   disabled={isStreaming || !input.trim() || !canSendMessages}
-                  className="ml-3 rounded-xl bg-white p-2 text-black hover:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="cw-send-btn"
                 >
-                  <Send size={18} />
+                  <Send size={15} />
                 </button>
               </div>
 
-              <div className="mt-4 flex items-center justify-between rounded-xl border border-neutral-800 bg-neutral-950 p-2">
-                <div className="flex rounded-lg bg-black p-1">
-                  <button
-                    type="button"
-                    onClick={() => setMessageMode("single")}
-                    className={`rounded-md px-4 py-2 text-sm ${
-                      messageMode === "single" ? "bg-white text-black" : "text-neutral-400 hover:text-white"
-                    }`}
-                  >
+              {/* Mode toggle */}
+              <div className="cw-mode-row">
+                <div className="cw-mode-tabs">
+                  <button type="button" onClick={() => setMessageMode("single")} className={`cw-mode-tab ${messageMode === "single" ? "active" : ""}`}>
                     Single Model
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setMessageMode("team")}
-                    className={`rounded-md px-4 py-2 text-sm ${
-                      messageMode === "team" ? "bg-white text-black" : "text-neutral-400 hover:text-white"
-                    }`}
-                  >
+                  <button type="button" onClick={() => setMessageMode("team")} className={`cw-mode-tab ${messageMode === "team" ? "active" : ""}`}>
                     Team Mode Pro
                   </button>
                 </div>
-                <p className="text-xs text-neutral-500">
-                  Team Mode uses reasoning → execution → review.
-                </p>
+                <span className="cw-mode-hint">reasoning → execution → review</span>
               </div>
 
+              {/* No API keys warning */}
               {usage?.connectedProviders?.length === 0 && (
-                <p className="mt-3 rounded-xl border border-yellow-800 bg-yellow-950/40 px-4 py-3 text-sm text-yellow-300">
+                <div className="cw-warn">
                   No API keys connected. Go to API Manager to connect at least one model provider.
-                </p>
+                </div>
               )}
 
-              <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-5">
+              {/* Role selector */}
+              <div className="cw-role-row">
                 {roleButtons.map((role) => {
                   const active = selectedRole === role.value;
                   const providerLabel = getProviderLabel(roleProviders[role.value]);
-
                   return (
                     <div
                       key={role.value}
-                      className={`flex items-center rounded-xl border text-sm ${
-                        active
-                          ? "border-white bg-white text-black"
-                          : "border-neutral-800 bg-neutral-950 text-neutral-300 hover:bg-neutral-900"
-                      }`}
+                      className={`cw-role-card ${active ? "active" : ""}`}
+                      style={active ? { borderColor: roleAccent[role.value], boxShadow: `0 0 14px ${roleAccent[role.value]}30` } : {}}
                     >
                       <button
                         type="button"
                         onClick={() => { if (!canEditProject) return; setSelectedRole(role.value); }}
-                        className="flex min-w-0 flex-1 items-center justify-center gap-2 px-3 py-2.5"
+                        className="cw-role-inner"
                       >
-                        {role.icon}
-                        <span className="truncate">{providerLabel}</span>
+                        <span className="cw-role-icon" style={active ? { color: roleAccent[role.value] } : {}}>{role.icon}</span>
+                        <span className="cw-role-name" style={active ? { color: roleAccent[role.value] } : {}}>{providerLabel}</span>
                       </button>
-
-                      <div className="relative mr-2 flex items-center">
-                        <ChevronDown
-                          size={15}
-                          className={active ? "text-black" : "text-neutral-500"}
-                        />
+                      <div className="cw-role-chevron">
+                        <ChevronDown size={11} style={{ color: active ? roleAccent[role.value] : "var(--tm)" }} />
                         <select
                           value={roleProviders[role.value]}
                           onChange={(e) => updateRoleProvider(role.value, e.target.value)}
                           disabled={connectedOptions.length === 0 || !canEditProject}
+                          className="cw-role-select"
                           title={`Change ${role.value} model`}
-                          className="absolute inset-0 cursor-pointer opacity-0 disabled:cursor-not-allowed"
                         >
-                          {connectedOptions.map((provider) => (
-                            <option key={provider.value} value={provider.value}>
-                              {provider.label}
-                            </option>
+                          {connectedOptions.map((p) => (
+                            <option key={p.value} value={p.value}>{p.label}</option>
                           ))}
                         </select>
                       </div>
@@ -1116,360 +1497,326 @@ export default function ProjectChatPage() {
                   );
                 })}
 
-                <button
-                  type="button"
-                  onClick={() => { if (!canEditProject) return; setSelectedRole("auto"); }}
-                  className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm ${
-                    selectedRole === "auto"
-                      ? "border-white bg-white text-black"
-                      : "border-neutral-800 bg-neutral-950 text-neutral-300 hover:bg-neutral-900"
-                  }`}
+                {/* Auto button */}
+                <div
+                  className={`cw-role-card ${selectedRole === "auto" ? "active" : ""}`}
+                  style={selectedRole === "auto" ? { borderColor: roleAccent.auto, boxShadow: `0 0 14px ${roleAccent.auto}30` } : {}}
                 >
-                  <Bot size={17} />
-                  Auto
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => { if (!canEditProject) return; setSelectedRole("auto"); }}
+                    className="cw-role-inner"
+                    style={{ justifyContent: "center" }}
+                  >
+                    <span className="cw-role-icon" style={selectedRole === "auto" ? { color: roleAccent.auto } : {}}>
+                      <Bot size={14} />
+                    </span>
+                    <span className="cw-role-name" style={selectedRole === "auto" ? { color: roleAccent.auto } : {}}>Auto</span>
+                  </button>
+                </div>
               </div>
             </div>
           </form>
         </section>
       </div>
 
-      {/* Chat List modal */}
+      {/* ── CHAT LIST MODAL ── */}
       {chatListOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
-          <div className="w-full max-w-xl rounded-2xl border border-neutral-800 bg-neutral-950 p-6 text-white">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Chats</h2>
-              <button
-                onClick={() => setChatListOpen(false)}
-                className="rounded-lg border border-neutral-800 px-3 py-2 text-sm"
-              >
-                Close
+        <div className="cw-backdrop" onClick={(e) => e.target === e.currentTarget && setChatListOpen(false)}>
+          <div className="cw-modal">
+            <div className="cw-modal-header">
+              <div>
+                <div className="cw-modal-title">Chats</div>
+                <div className="cw-modal-sub">Select or manage your project conversations</div>
+              </div>
+              <button className="cw-modal-close" onClick={() => setChatListOpen(false)}>
+                <X size={14} />
               </button>
             </div>
 
-            <div className="mt-5 space-y-3">
-              {chats.length === 0 ? (
-                <p className="text-sm text-neutral-500">No chats yet. Create one to get started.</p>
-              ) : (
-                chats.map((chat) => (
-  <div
-    key={chat.id}
-    onClick={() => { setActiveChatId(chat.id); setChatListOpen(false); }}
-    className={`flex w-full cursor-pointer items-center justify-between rounded-xl border px-4 py-3 ${
-      activeChatId === chat.id
-        ? "border-white bg-white text-black"
-        : "border-neutral-800 bg-black text-white hover:bg-neutral-900"
-    }`}
-  >
-    <div>
-      <p className="text-sm font-medium">{chat.title}</p>
-      <p className="text-xs opacity-60">
-        {new Date(chat.updated_at).toLocaleString()}
-      </p>
-      {chat.creator_email && (
-        <p className={`text-xs mt-0.5 ${activeChatId === chat.id ? "text-neutral-600" : "text-neutral-500"}`}>
-          Created by {chat.creator_email}
-          {chat.creator_role && (
-            <span className="ml-1 capitalize rounded-full border px-1.5 py-0.5 text-[10px] border-neutral-700">
-              {chat.creator_role}
-            </span>
-          )}
-        </p>
-      )}
-    </div>
+            {chats.length === 0 ? (
+              <p style={{ fontSize: 13, color: "var(--tm)" }}>No chats yet. Create one to get started.</p>
+            ) : (
+              chats.map((chat) => (
+                <div
+                  key={chat.id}
+                  className={`cw-chat-item ${activeChatId === chat.id ? "active" : ""}`}
+                  onClick={() => { setActiveChatId(chat.id); setChatListOpen(false); }}
+                >
+                  <div>
+                    <div className="cw-chat-item-title">{chat.title}</div>
+                    <div className="cw-chat-item-meta">{new Date(chat.updated_at).toLocaleString()}</div>
+                    {chat.creator_email && (
+                      <div className="cw-creator-info">
+                        {chat.creator_email}
+                        {chat.creator_role && (
+                          <span className="cw-creator-badge">{chat.creator_role}</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  {project?.my_role === "owner" ? (
+                    <select
+                      value={chat.visibility}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => updateChatVisibility(chat.id, e.target.value as "public" | "private")}
+                      className="cw-vis-select"
+                    >
+                      <option value="public">Public</option>
+                      <option value="private">Private</option>
+                    </select>
+                  ) : (
+                    <span className="cw-vis-chip">{chat.visibility}</span>
+                  )}
+                </div>
+              ))
+            )}
 
-    {project?.my_role === "owner" ? (
-      <select
-        value={chat.visibility}
-        onClick={(e) => e.stopPropagation()}
-        onChange={(e) =>
-          updateChatVisibility(chat.id, e.target.value as "public" | "private")
-        }
-        className={`rounded-lg border px-2 py-1 text-xs ${
-          activeChatId === chat.id
-            ? "border-neutral-400 bg-white text-black"
-            : "border-neutral-700 bg-black text-white"
-        }`}
-      >
-        <option value="public">Public</option>
-        <option value="private">Private</option>
-      </select>
-    ) : (
-      <span className="rounded-full border px-2 py-0.5 text-xs capitalize">
-        {chat.visibility}
-      </span>
-    )}
-  </div>
-))
-              )}
+            <div style={{ marginTop: 14 }}>
+              <button className="cw-btn-save" style={{ width: "100%" }} onClick={() => { createNewChat(); setChatListOpen(false); }}>
+                + New Chat
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Usage Analysis panel */}
+      {/* ── USAGE PANEL ── */}
       {usageOpen && (
-        <div className="fixed inset-0 z-50 flex justify-end bg-black/60">
-          <aside className="h-full w-full max-w-md overflow-y-auto border-l border-neutral-800 bg-neutral-950 p-6 text-white shadow-2xl">
-            <div className="flex items-center justify-between">
+        <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(4,4,18,0.5)", backdropFilter: "blur(6px)" }}>
+          <aside className="cw-usage-panel">
+            <div className="cw-modal-header">
               <div>
-                <h2 className="text-xl font-semibold">Usage Analysis</h2>
-                <p className="text-sm text-neutral-500">Token usage across connected models.</p>
+                <div className="cw-modal-title">Usage Analysis</div>
+                <div className="cw-modal-sub">Token usage across connected models</div>
               </div>
-              <button
-                onClick={() => setUsageOpen(false)}
-                className="rounded-lg border border-neutral-800 px-3 py-2 text-sm hover:bg-neutral-900"
-              >
-                Close
+              <button className="cw-modal-close" onClick={() => setUsageOpen(false)}>
+                <X size={14} />
               </button>
             </div>
 
-            <div className="mt-6 rounded-2xl border border-neutral-800 bg-black p-5">
-              <p className="mt-2 text-3xl font-bold">{usage?.totalTokensToday ?? 0}</p>
-              <p className="text-sm text-neutral-500">
-                Cost today: ${usage?.totalCostToday?.toFixed(4) || "0.0000"}
-              </p>
-              <p className="mt-1 text-sm text-neutral-500">
-                Most used: {usage?.mostUsedModel || "None"}
-              </p>
+            <div className="cw-usage-stat">
+              <div className="cw-usage-val">{(usage?.totalTokensToday ?? 0).toLocaleString()}</div>
+              <div className="cw-usage-meta">
+                Cost today: ${usage?.totalCostToday?.toFixed(4) || "0.0000"} · Most used: {usage?.mostUsedModel || "None"}
+              </div>
             </div>
 
-            <div className="mt-6 rounded-2xl border border-neutral-800 bg-black p-5">
-              <h3 className="font-semibold">Connected Model Limits</h3>
-              {!usage?.providerUsage?.length ? (
-                <p className="mt-3 text-sm text-yellow-400">
-                  No connected API keys. Connect providers in API Manager.
-                </p>
-              ) : (
-                <div className="mt-4 space-y-4">
-                  {usage.providerUsage.map((item) => {
-                    const percentage =
-                      item.limit > 0 ? Math.min((item.usedToday / item.limit) * 100, 100) : 0;
-                    return (
-                      <div key={item.provider}>
-                        <div className="mb-1 flex justify-between text-sm">
-                          <span className="capitalize">{item.provider}</span>
-                          <span className="text-neutral-500">{item.usedToday} / {item.limit}</span>
-                        </div>
-                        <div className="h-2 rounded-full bg-neutral-800">
-                          <div className="h-2 rounded-full bg-white" style={{ width: `${percentage}%` }} />
-                        </div>
-                        <p className="mt-1 text-xs text-neutral-500">Remaining: {item.remaining}</p>
-                        <p className="text-xs text-neutral-400">
-                          Cost: ${item.costToday?.toFixed(4) || "0.0000"}
-                        </p>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            <div className="mt-6 rounded-2xl border border-neutral-800 bg-black p-5">
-              <h3 className="font-semibold">Usage by Model Today</h3>
-              {!usage?.usageByModel?.length ? (
-                <p className="mt-3 text-sm text-neutral-500">No usage yet.</p>
-              ) : (
-                <div className="mt-4 space-y-3">
-                  {usage.usageByModel.map((item) => (
-                    <div
-                      key={item.model}
-                      className="flex justify-between rounded-xl border border-neutral-800 bg-neutral-950 px-4 py-3 text-sm"
-                    >
-                      <span>{item.model}</span>
-                      <span className="text-neutral-400">{item.tokens_used} tokens</span>
+            <div className="cw-modal-label" style={{ marginTop: 14 }}>Connected Model Limits</div>
+            {!usage?.providerUsage?.length ? (
+              <p style={{ fontSize: 12.5, color: "#fbbf24", marginBottom: 12 }}>No connected API keys. Connect providers in API Manager.</p>
+            ) : (
+              usage.providerUsage.map((item) => {
+                const pct = item.limit > 0 ? Math.min((item.usedToday / item.limit) * 100, 100) : 0;
+                return (
+                  <div key={item.provider} className="cw-prog-row">
+                    <div className="cw-prog-header">
+                      <span style={{ textTransform: "capitalize" }}>{item.provider}</span>
+                      <span>{item.usedToday} / {item.limit}</span>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
+                    <div className="cw-prog-bar">
+                      <div className="cw-prog-fill" style={{ width: `${pct}%` }} />
+                    </div>
+                    <div style={{ fontSize: 10.5, color: "var(--tm)", marginTop: 3 }}>
+                      Remaining: {item.remaining} · ${item.costToday?.toFixed(4)}
+                    </div>
+                  </div>
+                );
+              })
+            )}
 
-            <div className="mt-6 rounded-2xl border border-neutral-800 bg-black p-5">
-              <h3 className="font-semibold mb-4">Usage Trend</h3>
-              {usage?.usageByDay?.length ? (
-                <div style={{ width: "100%", height: 260,  minHeight: 260 }}>
-                  <ResponsiveContainer width="100%"  height={260}>
-                    <LineChart data={usage.usageByDay}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#262626" />
-                      <XAxis dataKey="date" tick={{ fontSize: 12, fill: "#a3a3a3" }} />
-                      <YAxis tick={{ fontSize: 12, fill: "#a3a3a3" }} />
-                      <Tooltip />
-                      <Line type="monotone" dataKey="tokens_used" strokeWidth={2} />
-                    </LineChart>
-                  </ResponsiveContainer>
+            <div className="cw-modal-label" style={{ marginTop: 14 }}>Usage by Model Today</div>
+            {!usage?.usageByModel?.length ? (
+              <p style={{ fontSize: 12.5, color: "var(--tm)" }}>No usage yet.</p>
+            ) : (
+              usage.usageByModel.map((item) => (
+                <div key={item.model} className="cw-model-row">
+                  <span className="cw-model-row-name">{item.model}</span>
+                  <span className="cw-model-row-val">{item.tokens_used} tokens</span>
                 </div>
-              ) : (
-                <p className="text-sm text-neutral-500">No data yet</p>
-              )}
-            </div>
+              ))
+            )}
 
-            <div className="mt-6 rounded-2xl border border-neutral-800 bg-black p-5">
-              <h3 className="font-semibold mb-4">Usage by Provider</h3>
-              {usage?.providerUsage?.length ? (
-                <div style={{ width: "100%", height: 260 }}>
-                  <ResponsiveContainer width="100%" height={260}>
-                    <BarChart data={usage.providerUsage}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#262626" />
-                      <XAxis dataKey="provider" tick={{ fontSize: 12, fill: "#a3a3a3" }} />
-                      <YAxis tick={{ fontSize: 12, fill: "#a3a3a3" }} />
-                      <Tooltip />
-                      <Bar dataKey="usedToday" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              ) : (
-                <p className="text-sm text-neutral-500">No provider usage yet</p>
-              )}
-            </div>
+            <div className="cw-modal-label" style={{ marginTop: 14 }}>Usage Trend</div>
+            {usage?.usageByDay?.length ? (
+              <div style={{ width: "100%", height: 240 }}>
+                <ResponsiveContainer width="100%" height={240}>
+                  <LineChart data={usage.usageByDay}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--b-soft)" />
+                    <XAxis dataKey="date" tick={{ fontSize: 10, fill: "var(--tm)" }} />
+                    <YAxis tick={{ fontSize: 10, fill: "var(--tm)" }} />
+                    <Tooltip contentStyle={{ background: "var(--modal-bg)", border: "1px solid var(--b-mid)", borderRadius: 10, fontSize: 12 }} />
+                    <Line type="monotone" dataKey="tokens_used" stroke="var(--accent)" strokeWidth={2} dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <p style={{ fontSize: 12.5, color: "var(--tm)" }}>No data yet</p>
+            )}
+
+            <div className="cw-modal-label" style={{ marginTop: 14 }}>Usage by Provider</div>
+            {usage?.providerUsage?.length ? (
+              <div style={{ width: "100%", height: 220 }}>
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={usage.providerUsage}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--b-soft)" />
+                    <XAxis dataKey="provider" tick={{ fontSize: 10, fill: "var(--tm)" }} />
+                    <YAxis tick={{ fontSize: 10, fill: "var(--tm)" }} />
+                    <Tooltip contentStyle={{ background: "var(--modal-bg)", border: "1px solid var(--b-mid)", borderRadius: 10, fontSize: 12 }} />
+                    <Bar dataKey="usedToday" fill="var(--accent)" radius={[4, 4, 0, 0]} opacity={0.8} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <p style={{ fontSize: 12.5, color: "var(--tm)" }}>No provider usage yet</p>
+            )}
           </aside>
         </div>
       )}
 
-      {/* Project Settings Modal */}
+      {/* ── PROJECT SETTINGS MODAL ── */}
       {showSettings && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
-          <div className="w-[700px] max-w-full rounded-2xl border border-neutral-800 bg-black p-6">
-            <h2 className="text-lg font-semibold mb-4">Project Settings</h2>
-
-            <input
-              value={editName}
-              onChange={(e) => setEditName(e.target.value)}
-              className="w-full rounded-lg border border-neutral-800 bg-neutral-950 p-2 mb-3 text-white outline-none"
-              placeholder="Project name"
-            />
-
-            <textarea
-              value={editDescription}
-              onChange={(e) => setEditDescription(e.target.value)}
-              className="w-full rounded-lg border border-neutral-800 bg-neutral-950 p-2 mb-3 text-white outline-none resize-none"
-              rows={2}
-              placeholder="Description"
-            />
-
-            <div className="flex gap-2 mb-2 text-sm">
-              {[
-                { label: "B", cls: "font-bold", insert: "**bold** " },
-                { label: "I", cls: "italic", insert: "*italic* " },
-                { label: "•", cls: "", insert: "- item\n" },
-                { label: "H", cls: "", insert: "## Heading\n" },
-                { label: "❝", cls: "", insert: "> quote\n" },
-                { label: "</>", cls: "font-mono", insert: "`code` " },
-              ].map(({ label, cls, insert }) => (
-                <button
-                  key={label}
-                  type="button"
-                  onClick={() => setEditInstructions((prev) => prev + insert)}
-                  className={`rounded px-2 py-1 border border-neutral-700 hover:bg-neutral-800 ${cls}`}
-                >
-                  {label}
-                </button>
-              ))}
+        <div className="cw-backdrop" onClick={(e) => e.target === e.currentTarget && setShowSettings(false)}>
+          <div className="cw-modal cw-modal-xl">
+            <div className="cw-modal-header">
+              <div>
+                <div className="cw-modal-title">Project Settings</div>
+                <div className="cw-modal-sub">Configure your project workspace</div>
+              </div>
+              <button className="cw-modal-close" onClick={() => setShowSettings(false)}>
+                <X size={14} />
+              </button>
             </div>
 
-            <textarea
-              value={editInstructions}
-              onChange={(e) => setEditInstructions(e.target.value)}
-              className="w-full h-40 rounded-lg border border-neutral-800 bg-neutral-950 p-2 text-white outline-none resize-none font-mono text-sm"
-              placeholder="Project instructions (max 4000 chars)"
-            />
-            <p className="text-xs text-neutral-500 mt-1">{editInstructions.length}/4000</p>
+            <div className="cw-modal-section">
+              <div className="cw-modal-label">Project Name</div>
+              <input
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                className="cw-modal-input"
+                placeholder="Project name"
+              />
+              <div className="cw-modal-label">Description</div>
+              <textarea
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+                className="cw-modal-textarea"
+                rows={2}
+                placeholder="Description"
+              />
+            </div>
 
-            <div className="flex justify-end gap-2 mt-4">
-              <button
-                type="button"
-                onClick={() => setShowSettings(false)}
-                className="px-4 py-2 text-sm text-neutral-400 hover:text-white"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={saveProjectSettings}
-                className="rounded-lg bg-white px-4 py-2 text-black text-sm font-medium hover:bg-neutral-200"
-              >
-                Save
-              </button>
+            <div className="cw-modal-section">
+              <div className="cw-modal-label">Instructions</div>
+              <div style={{ display: "flex", gap: 5, marginBottom: 8, flexWrap: "wrap" }}>
+                {[
+                  { label: "B", cls: "font-bold", insert: "**bold** " },
+                  { label: "I", cls: "italic", insert: "*italic* " },
+                  { label: "•", cls: "", insert: "- item\n" },
+                  { label: "H", cls: "", insert: "## Heading\n" },
+                  { label: "❝", cls: "", insert: "> quote\n" },
+                  { label: "</>", cls: "font-mono", insert: "`code` " },
+                ].map(({ label, insert }) => (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => setEditInstructions((prev) => prev + insert)}
+                    className="cw-fmt-btn"
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <textarea
+                value={editInstructions}
+                onChange={(e) => setEditInstructions(e.target.value)}
+                className="cw-modal-textarea"
+                rows={7}
+                style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12 }}
+                placeholder="Project instructions (max 4000 chars)"
+              />
+              <div style={{ fontSize: 11, color: "var(--tm)", marginTop: 2 }}>
+                {editInstructions.length}/4000
+              </div>
+            </div>
+
+            <div className="cw-modal-footer">
+              <button type="button" onClick={() => setShowSettings(false)} className="cw-btn-cancel">Cancel</button>
+              <button type="button" onClick={saveProjectSettings} className="cw-btn-save">Save Changes</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Members Modal */}
+      {/* ── MEMBERS MODAL ── */}
       {membersOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
-          <div className="w-full max-w-xl rounded-2xl border border-neutral-800 bg-neutral-950 p-6 text-white shadow-2xl">
-            <div className="flex items-center justify-between">
+        <div className="cw-backdrop" onClick={(e) => e.target === e.currentTarget && setMembersOpen(false)}>
+          <div className="cw-modal">
+            <div className="cw-modal-header">
               <div>
-                <h2 className="text-lg font-semibold">Project Members</h2>
-                <p className="text-sm text-neutral-500">Invite teammates and manage access.</p>
+                <div className="cw-modal-title">Project Members</div>
+                <div className="cw-modal-sub">Invite teammates and manage access</div>
               </div>
-              <button
-                onClick={() => setMembersOpen(false)}
-                className="rounded-lg border border-neutral-800 px-3 py-2 text-sm hover:bg-neutral-900"
-              >
-                Close
+              <button className="cw-modal-close" onClick={() => setMembersOpen(false)}>
+                <X size={14} />
               </button>
             </div>
 
             {myProjectRole === "owner" && (
-              <div className="mt-6 rounded-2xl border border-neutral-800 bg-black p-4">
-                <p className="text-sm font-medium">Invite teammate</p>
-                <div className="mt-3 flex flex-col gap-3 sm:flex-row">
+              <div className="cw-modal-section">
+                <div className="cw-modal-label">Invite teammate</div>
+                <div className="cw-invite-row">
                   <input
                     value={inviteEmail}
                     onChange={(e) => setInviteEmail(e.target.value)}
                     placeholder="teammate@example.com"
-                    className="min-w-0 flex-1 rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm outline-none placeholder:text-neutral-600"
+                    className="cw-invite-input"
                   />
                   <select
                     value={inviteRole}
                     onChange={(e) => setInviteRole(e.target.value as "editor" | "viewer")}
-                    className="rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm outline-none"
+                    className="cw-invite-select"
                   >
                     <option value="viewer">Viewer</option>
                     <option value="editor">Editor</option>
                   </select>
-                  <button
-                    onClick={inviteMember}
-                    className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-black hover:bg-neutral-200"
-                  >
-                    Invite
-                  </button>
+                  <button onClick={inviteMember} className="cw-invite-btn">Invite</button>
                 </div>
-                <p className="mt-2 text-xs text-neutral-500">
+                <div style={{ fontSize: 11, color: "var(--tm)", marginTop: 7 }}>
                   The user must already have a CoWork.ai account.
-                </p>
+                </div>
               </div>
             )}
 
             {myProjectRole !== "owner" && (
-              <div className="mt-6 rounded-2xl border border-neutral-800 bg-black p-4 text-sm text-neutral-400">
+              <div className="cw-viewer-notice">
                 You can view members, but only the project owner can invite or remove teammates.
               </div>
             )}
 
-            <div className="mt-6 space-y-3">
+            <div style={{ marginTop: 12 }}>
               {members.length === 0 ? (
-                <p className="text-sm text-neutral-500">No members found.</p>
+                <p style={{ fontSize: 12.5, color: "var(--tm)" }}>No members found.</p>
               ) : (
                 members.map((member) => (
-                  <div
-                    key={member.id}
-                    className="flex items-center justify-between rounded-2xl border border-neutral-800 bg-black px-4 py-3"
-                  >
-                    <div>
-                      <p className="text-sm font-medium">{member.email}</p>
-                      <p className="text-xs capitalize text-neutral-500">{member.role}</p>
+                  <div key={member.id} className="cw-member-card">
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <div className="cw-avatar">
+                        {member.email.slice(0, 2).toUpperCase()}
+                      </div>
+                      <div>
+                        <div className="cw-member-email">{member.email}</div>
+                        <div className="cw-member-role">{member.role}</div>
+                      </div>
                     </div>
-                    {myProjectRole === "owner" && member.role !== "owner" && (
-                      <button
-                        onClick={() => removeMember(member.id)}
-                        className="rounded-lg border border-red-900 px-3 py-1.5 text-xs text-red-300 hover:bg-red-950"
-                      >
-                        Remove
-                      </button>
-                    )}
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span className={`cw-role-badge ${member.role}`}>{member.role}</span>
+                      {myProjectRole === "owner" && member.role !== "owner" && (
+                        <button onClick={() => removeMember(member.id)} className="cw-btn-remove">
+                          Remove
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ))
               )}
@@ -1477,6 +1824,6 @@ export default function ProjectChatPage() {
           </div>
         </div>
       )}
-    </main>
+    </div>
   );
 }

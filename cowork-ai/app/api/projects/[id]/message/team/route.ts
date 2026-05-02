@@ -25,7 +25,6 @@ type RouteParams = {
 
 type WorkType = "research" | "execution" | "reviewing" | "reasoning";
 
-// Step 3 — chatId is now required
 const teamSchema = z.object({
   content: z.string().min(1),
   chatId: z.string().uuid(),
@@ -185,15 +184,13 @@ export async function POST(req: NextRequest, context: RouteParams) {
 
     if (!parsed.success) {
       return NextResponse.json(
-        { error: "Message content is required." },
+        { error: "Message content and chat id are required." },
         { status: 400 }
       );
     }
 
-    // Step 3 — destructure chatId
     const { content, chatId } = parsed.data;
 
-    // Step 4 — verify chat belongs to project and user has access
     const chatRows = await sql`
       SELECT id, visibility
       FROM chats
@@ -213,7 +210,6 @@ export async function POST(req: NextRequest, context: RouteParams) {
       );
     }
 
-    // Step 5 — keep memory_summary project-level for now
     const optimizedContext = await getOptimizedProjectContext({ projectId });
 
     const instructions = project[0]?.instructions?.trim();
@@ -345,8 +341,7 @@ Reviewing: ${reviewingProvider}/${reviewingCreds.model}
 -->
 `.trim();
 
-    // Step 6 — insert user message with chat_id
-    await sql`
+    const userMessage = await sql`
       INSERT INTO contexts (
         project_id,
         chat_id,
@@ -363,13 +358,14 @@ Reviewing: ${reviewingProvider}/${reviewingCreds.model}
         ${content},
         ${Math.ceil(content.length / 4)}
       )
+      RETURNING id
     `;
 
-    // Step 6 — insert assistant message with chat_id
     const assistantMessage = await sql`
       INSERT INTO contexts (
         project_id,
         chat_id,
+        reply_to_message_id,
         role,
         model,
         content,
@@ -378,15 +374,15 @@ Reviewing: ${reviewingProvider}/${reviewingCreds.model}
       VALUES (
         ${projectId},
         ${chatId},
+        ${userMessage[0].id},
         'assistant',
         'team-mode',
         ${`${metadata}\n\n${finalAnswer}`},
         ${Math.ceil((plan.length + execution.length + finalAnswer.length) / 4)}
       )
-      RETURNING id, role, model, content, tokens_used, timestamp
+      RETURNING id, parent_message_id, reply_to_message_id, version_number, active_version, role, model, content, tokens_used, timestamp
     `;
 
-    // Step 7 — update chat timestamp
     await sql`
       UPDATE chats
       SET updated_at = CURRENT_TIMESTAMP

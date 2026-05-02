@@ -14,73 +14,97 @@ const createChatSchema = z.object({
 });
 
 // GET /api/projects/[id]/chats?activeChatId=<uuid>
-// Returns only non-empty chats PLUS the activeChatId (if valid) even if it has no messages yet.
 export async function GET(req: NextRequest, context: RouteParams) {
   try {
     const user = getAuthUser(req);
-
     if (!user) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
 
     const { id: projectId } = await context.params;
-
     const access = await getProjectAccess({ projectId, userId: user.userId });
 
     if (!access.role) {
       return NextResponse.json({ error: "Project not found." }, { status: 404 });
     }
 
-    // Only treat activeChatId as valid when it's actually a non-empty string
     const activeChatId = req.nextUrl.searchParams.get("activeChatId") || null;
 
-    const chats = activeChatId
-      ? access.role === "owner"
-        ? await sql`
-            SELECT id, project_id, user_id, title, visibility, created_at, updated_at
-            FROM chats
-            WHERE project_id = ${projectId}
-            AND (
-              id = ${activeChatId}
-              OR EXISTS (
-                SELECT 1 FROM contexts WHERE contexts.chat_id = chats.id
-              )
-            )
-            ORDER BY updated_at DESC
-          `
-        : await sql`
-            SELECT id, project_id, user_id, title, visibility, created_at, updated_at
-            FROM chats
-            WHERE project_id = ${projectId}
-            AND visibility = 'public'
-            AND (
-              id = ${activeChatId}
-              OR EXISTS (
-                SELECT 1 FROM contexts WHERE contexts.chat_id = chats.id
-              )
-            )
-            ORDER BY updated_at DESC
-          `
-      : access.role === "owner"
-        ? await sql`
-            SELECT id, project_id, user_id, title, visibility, created_at, updated_at
-            FROM chats
-            WHERE project_id = ${projectId}
-            AND EXISTS (
-              SELECT 1 FROM contexts WHERE contexts.chat_id = chats.id
-            )
-            ORDER BY updated_at DESC
-          `
-        : await sql`
-            SELECT id, project_id, user_id, title, visibility, created_at, updated_at
-            FROM chats
-            WHERE project_id = ${projectId}
-            AND visibility = 'public'
-            AND EXISTS (
-              SELECT 1 FROM contexts WHERE contexts.chat_id = chats.id
-            )
-            ORDER BY updated_at DESC
-          `;
+    let chats;
+
+    if (activeChatId) {
+      if (access.role === "owner") {
+        chats = await sql`
+          SELECT
+            c.id, c.project_id, c.user_id, c.title, c.visibility,
+            c.created_at, c.updated_at,
+            u.email AS creator_email,
+            pm.role  AS creator_role
+          FROM chats c
+          LEFT JOIN users u  ON u.id = c.user_id
+          LEFT JOIN project_members pm
+            ON pm.project_id = c.project_id AND pm.user_id = c.user_id
+          WHERE c.project_id = ${projectId}
+          AND (
+            c.id = ${activeChatId}
+            OR EXISTS (SELECT 1 FROM contexts WHERE contexts.chat_id = c.id)
+          )
+          ORDER BY c.updated_at DESC
+        `;
+      } else {
+        chats = await sql`
+          SELECT
+            c.id, c.project_id, c.user_id, c.title, c.visibility,
+            c.created_at, c.updated_at,
+            u.email AS creator_email,
+            pm.role  AS creator_role
+          FROM chats c
+          LEFT JOIN users u  ON u.id = c.user_id
+          LEFT JOIN project_members pm
+            ON pm.project_id = c.project_id AND pm.user_id = c.user_id
+          WHERE c.project_id = ${projectId}
+          AND c.visibility = 'public'
+          AND (
+            c.id = ${activeChatId}
+            OR EXISTS (SELECT 1 FROM contexts WHERE contexts.chat_id = c.id)
+          )
+          ORDER BY c.updated_at DESC
+        `;
+      }
+    } else {
+      if (access.role === "owner") {
+        chats = await sql`
+          SELECT
+            c.id, c.project_id, c.user_id, c.title, c.visibility,
+            c.created_at, c.updated_at,
+            u.email AS creator_email,
+            pm.role  AS creator_role
+          FROM chats c
+          LEFT JOIN users u  ON u.id = c.user_id
+          LEFT JOIN project_members pm
+            ON pm.project_id = c.project_id AND pm.user_id = c.user_id
+          WHERE c.project_id = ${projectId}
+          AND EXISTS (SELECT 1 FROM contexts WHERE contexts.chat_id = c.id)
+          ORDER BY c.updated_at DESC
+        `;
+      } else {
+        chats = await sql`
+          SELECT
+            c.id, c.project_id, c.user_id, c.title, c.visibility,
+            c.created_at, c.updated_at,
+            u.email AS creator_email,
+            pm.role  AS creator_role
+          FROM chats c
+          LEFT JOIN users u  ON u.id = c.user_id
+          LEFT JOIN project_members pm
+            ON pm.project_id = c.project_id AND pm.user_id = c.user_id
+          WHERE c.project_id = ${projectId}
+          AND c.visibility = 'public'
+          AND EXISTS (SELECT 1 FROM contexts WHERE contexts.chat_id = c.id)
+          ORDER BY c.updated_at DESC
+        `;
+      }
+    }
 
     return NextResponse.json({ chats });
   } catch (error: any) {
@@ -92,17 +116,15 @@ export async function GET(req: NextRequest, context: RouteParams) {
   }
 }
 
-// POST /api/projects/[id]/chats — create a new chat (auto-name if no title given)
+// POST /api/projects/[id]/chats — create a new chat
 export async function POST(req: NextRequest, context: RouteParams) {
   try {
     const user = getAuthUser(req);
-
     if (!user) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
 
     const { id: projectId } = await context.params;
-
     const access = await getProjectAccess({ projectId, userId: user.userId });
 
     if (!access.role) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import RichMessage from "@/components/chat/RichMessage";
 
@@ -34,7 +34,6 @@ import {
   YAxis,
 } from "recharts";
 
-// Step 8 — Chat type
 type Chat = {
   id: string;
   project_id: string;
@@ -157,10 +156,20 @@ export default function ProjectChatPage() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<"editor" | "viewer">("viewer");
 
-  // Step 8 — Chat states
+  // Chat states
   const [chats, setChats] = useState<Chat[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [chatListOpen, setChatListOpen] = useState(false);
+
+  // Use a ref so rename callbacks always see the current chatId without stale closure
+  const activeChatIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    activeChatIdRef.current = activeChatId;
+  }, [activeChatId]);
+
+  // Chat title rename states
+  const [editingChatTitle, setEditingChatTitle] = useState(false);
+  const [chatTitleDraft, setChatTitleDraft] = useState("");
 
   const canEditProject = project?.my_role === "owner" || project?.my_role === "editor";
   const canManageProject = project?.my_role === "owner";
@@ -185,14 +194,12 @@ export default function ProjectChatPage() {
 
   function getProviderLabel(provider: string) {
     return (
-      providerOptions.find((item) => item.value === provider)?.label ||
-      provider
+      providerOptions.find((item) => item.value === provider)?.label || provider
     );
   }
 
   function getConnectedProviderOptions() {
     if (!usage?.connectedProviders?.length) return [];
-
     return providerOptions.filter((provider) =>
       usage.connectedProviders.some(
         (connected) => connected.provider === provider.value
@@ -203,13 +210,10 @@ export default function ProjectChatPage() {
   async function fetchUsage() {
     const token = getToken();
     if (!token) return;
-
     const res = await fetch("/api/usage", {
       headers: { Authorization: `Bearer ${token}` },
     });
-
     if (!res.ok) return;
-
     const data = await res.json();
     setUsage(data);
   }
@@ -217,13 +221,10 @@ export default function ProjectChatPage() {
   async function fetchMembers() {
     const token = getToken();
     if (!token) return;
-
     const res = await fetch(`/api/projects/${projectId}/members`, {
       headers: { Authorization: `Bearer ${token}` },
     });
-
     if (!res.ok) return;
-
     const data = await res.json();
     setMembers(data.members || []);
     setMyProjectRole(data.myRole || null);
@@ -231,36 +232,16 @@ export default function ProjectChatPage() {
 
   async function inviteMember() {
     const token = getToken();
-
-    if (!token) {
-      router.push("/auth/login");
-      return;
-    }
-
-    if (!inviteEmail.trim()) {
-      alert("Enter an email address.");
-      return;
-    }
+    if (!token) { router.push("/auth/login"); return; }
+    if (!inviteEmail.trim()) { alert("Enter an email address."); return; }
 
     const res = await fetch(`/api/projects/${projectId}/members`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        email: inviteEmail.trim(),
-        role: inviteRole,
-      }),
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ email: inviteEmail.trim(), role: inviteRole }),
     });
-
     const data = await res.json().catch(() => ({}));
-
-    if (!res.ok) {
-      alert(data.error || "Failed to invite member.");
-      return;
-    }
-
+    if (!res.ok) { alert(data.error || "Failed to invite member."); return; }
     setInviteEmail("");
     setInviteRole("viewer");
     await fetchMembers();
@@ -268,31 +249,16 @@ export default function ProjectChatPage() {
 
   async function removeMember(userId: string) {
     const token = getToken();
-
-    if (!token) {
-      router.push("/auth/login");
-      return;
-    }
-
+    if (!token) { router.push("/auth/login"); return; }
     const confirmed = confirm("Remove this member from the project?");
     if (!confirmed) return;
-
     const res = await fetch(`/api/projects/${projectId}/members`, {
       method: "DELETE",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({ userId }),
     });
-
     const data = await res.json().catch(() => ({}));
-
-    if (!res.ok) {
-      alert(data.error || "Failed to remove member.");
-      return;
-    }
-
+    if (!res.ok) { alert(data.error || "Failed to remove member."); return; }
     await fetchMembers();
   }
 
@@ -300,13 +266,10 @@ export default function ProjectChatPage() {
     const token = getToken();
     if (!token) return;
 
-    const globalRes = await fetch("/api/models/roles", {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-
-    const projectRes = await fetch(`/api/projects/${projectId}/roles`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const [globalRes, projectRes] = await Promise.all([
+      fetch("/api/models/roles", { headers: { Authorization: `Bearer ${token}` } }),
+      fetch(`/api/projects/${projectId}/roles`, { headers: { Authorization: `Bearer ${token}` } }),
+    ]);
 
     const nextProviders: RoleProviderMap = {
       reasoning: "google",
@@ -319,67 +282,37 @@ export default function ProjectChatPage() {
       const globalData = await globalRes.json();
       globalData.roles?.forEach(
         (item: { role: keyof RoleProviderMap; provider: string }) => {
-          if (item.role in nextProviders) {
-            nextProviders[item.role] = item.provider;
-          }
+          if (item.role in nextProviders) nextProviders[item.role] = item.provider;
         }
       );
     }
-
     if (projectRes.ok) {
       const projectData = await projectRes.json();
       projectData.roles?.forEach(
         (item: { role: keyof RoleProviderMap; provider: string }) => {
-          if (item.role in nextProviders) {
-            nextProviders[item.role] = item.provider;
-          }
+          if (item.role in nextProviders) nextProviders[item.role] = item.provider;
         }
       );
     }
-
     setRoleProviders(nextProviders);
   }
 
   async function fetchProject() {
     const token = getToken();
-
-    if (!token) {
-      router.push("/auth/login");
-      return;
-    }
+    if (!token) { router.push("/auth/login"); return; }
 
     try {
       const res = await fetch(`/api/projects/${projectId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-
-      if (res.status === 401) {
-        localStorage.removeItem("token");
-        router.push("/auth/login");
-        return;
-      }
-
-      if (res.status === 404) {
-        router.push("/dashboard");
-        return;
-      }
-
-      if (!res.ok) {
-        console.error(`fetchProject failed: ${res.status} ${res.statusText}`);
-        setLoading(false);
-        return;
-      }
+      if (res.status === 401) { localStorage.removeItem("token"); router.push("/auth/login"); return; }
+      if (res.status === 404) { router.push("/dashboard"); return; }
+      if (!res.ok) { console.error(`fetchProject failed: ${res.status}`); setLoading(false); return; }
 
       const text = await res.text();
-
-      if (!text) {
-        console.error("fetchProject: empty response body");
-        setLoading(false);
-        return;
-      }
+      if (!text) { console.error("fetchProject: empty response body"); setLoading(false); return; }
 
       const data = JSON.parse(text);
-
       setProject(data.project);
       await fetchRoleAssignments();
       await fetchUsage();
@@ -390,30 +323,33 @@ export default function ProjectChatPage() {
     }
   }
 
-  // Step 9 — Fetch chats
-  async function fetchChats() {
+  // Always pass a real UUID or nothing — never an empty string
+  async function fetchChats(currentActiveChatId?: string | null) {
     const token = getToken();
     if (!token) return;
 
-    const res = await fetch(`/api/projects/${projectId}/chats`, {
+    const activeId = currentActiveChatId ?? activeChatIdRef.current ?? null;
+    const url = activeId
+      ? `/api/projects/${projectId}/chats?activeChatId=${activeId}`
+      : `/api/projects/${projectId}/chats`;
+
+    const res = await fetch(url, {
       headers: { Authorization: `Bearer ${token}` },
     });
-
     if (!res.ok) return;
 
     const data = await res.json();
-    const nextChats = data.chats || [];
-
+    const nextChats: Chat[] = data.chats || [];
     setChats(nextChats);
 
-    if (!activeChatId && nextChats.length > 0) {
-      setActiveChatId(nextChats[0].id);
-    }
+    setActiveChatId((prev) => {
+      if (!prev && nextChats.length > 0) return nextChats[0].id;
+      return prev;
+    });
 
     return nextChats;
   }
 
-  // Step 10 — Fetch messages for active chat
   async function fetchChatMessages(chatId: string) {
     const token = getToken();
     if (!token) return;
@@ -421,76 +357,79 @@ export default function ProjectChatPage() {
     const res = await fetch(`/api/projects/${projectId}/chats/${chatId}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
-
     if (!res.ok) return;
 
     const data = await res.json();
     setMessages(data.contexts || []);
   }
 
-  // Step 11 — Create new chat
   async function createNewChat() {
     const token = getToken();
     if (!token) return;
 
     const res = await fetch(`/api/projects/${projectId}/chats`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        title: "New Chat",
-        visibility: "public",
-      }),
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ visibility: "public" }),
     });
-
     const data = await res.json().catch(() => ({}));
+    if (!res.ok) { alert(data.error || "Failed to create chat."); return; }
 
-    if (!res.ok) {
-      alert(data.error || "Failed to create chat.");
-      return;
-    }
+    const newChat: Chat = data.chat;
 
-    await fetchChats();
-    setActiveChatId(data.chat.id);
+    // Inject immediately so the title is available for rename before fetchChats returns
+    setChats((prev) => [newChat, ...prev]);
+    setActiveChatId(newChat.id);
+    activeChatIdRef.current = newChat.id;
+    setChatTitleDraft(newChat.title);
     setMessages([]);
+
+    // Sync with server — pass the new id explicitly so it's pinned even though it's empty
+    await fetchChats(newChat.id);
   }
 
-  // Step 14 — Update chat visibility
-  async function updateChatVisibility(
-    chatId: string,
-    visibility: "public" | "private"
-  ) {
+  async function updateChatVisibility(chatId: string, visibility: "public" | "private") {
     const token = getToken();
     if (!token) return;
 
     const res = await fetch(`/api/projects/${projectId}/chats/${chatId}`, {
       method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({ visibility }),
     });
-
     const data = await res.json().catch(() => ({}));
-
-    if (!res.ok) {
-      alert(data.error || "Failed to update chat.");
-      return;
-    }
-
+    if (!res.ok) { alert(data.error || "Failed to update chat."); return; }
     await fetchChats();
   }
 
-  // Step 15 — Delete chat (renamed from "History")
+  // Accept an explicit chatId so this always works even right after creation
+  async function updateChatTitle(chatId?: string) {
+    const targetId = chatId ?? activeChatIdRef.current;
+    if (!targetId || !chatTitleDraft.trim()) return;
+    const token = getToken();
+    if (!token) return;
+
+    const res = await fetch(`/api/projects/${projectId}/chats/${targetId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ title: chatTitleDraft.trim() }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { alert(data.error || "Failed to rename chat."); return; }
+
+    // Real-time optimistic update in both chat header and chat list
+    setChats((prev) =>
+      prev.map((chat) =>
+        chat.id === targetId ? { ...chat, title: data.chat.title } : chat
+      )
+    );
+    setEditingChatTitle(false);
+  }
+
   async function deleteChat() {
     if (!activeChatId) return;
-
     const confirmed = confirm("Delete this chat and all its messages?");
     if (!confirmed) return;
-
     const token = getToken();
     if (!token) return;
 
@@ -498,33 +437,37 @@ export default function ProjectChatPage() {
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}` },
     });
+    if (!res.ok) { alert("Failed to delete chat."); return; }
 
-    if (!res.ok) {
-      alert("Failed to delete chat.");
-      return;
-    }
-
-    await fetchChats();
     setMessages([]);
     setActiveChatId(null);
+    activeChatIdRef.current = null;
+    await fetchChats(null);
   }
 
-  // Step 9 — Load chats on mount alongside project
+  // Mount: load project and chats in parallel
   useEffect(() => {
     fetchProject();
     fetchChats();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
-  // Step 10 — Fetch messages whenever active chat changes
+  // Load messages when active chat changes
   useEffect(() => {
     if (activeChatId) {
       fetchChatMessages(activeChatId);
+      setEditingChatTitle(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeChatId]);
 
-  // Populate settings fields whenever project loads
+  // Sync title draft when active chat or chat list changes
+  useEffect(() => {
+    const activeChat = chats.find((chat) => chat.id === activeChatId);
+    if (activeChat) setChatTitleDraft(activeChat.title);
+  }, [activeChatId, chats]);
+
+  // Populate settings fields when project loads
   useEffect(() => {
     if (project) {
       setEditName(project.name || "");
@@ -533,84 +476,43 @@ export default function ProjectChatPage() {
     }
   }, [project]);
 
-  async function updateRoleProvider(
-    role: keyof RoleProviderMap,
-    provider: string
-  ) {
+  async function updateRoleProvider(role: keyof RoleProviderMap, provider: string) {
     const token = getToken();
-
-    if (!token) {
-      router.push("/auth/login");
-      return;
-    }
-
+    if (!token) { router.push("/auth/login"); return; }
     setRoleProviders((prev) => ({ ...prev, [role]: provider }));
-
     const res = await fetch(`/api/projects/${projectId}/roles`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({ role, provider }),
     });
-
-    if (!res.ok) {
-      alert("Failed to update project model.");
-      return;
-    }
-
+    if (!res.ok) { alert("Failed to update project model."); return; }
     await fetchRoleAssignments();
   }
 
   async function saveProjectSettings() {
     const token = getToken();
-
     const res = await fetch(`/api/projects/${projectId}`, {
       method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({
         name: editName,
         description: editDescription,
         instructions: editInstructions.slice(0, 4000),
       }),
     });
-
-    if (!res.ok) {
-      alert("Failed to update project.");
-      return;
-    }
-
+    if (!res.ok) { alert("Failed to update project."); return; }
     await fetchProject();
     setShowSettings(false);
   }
 
-  // Step 12 — Send message with chatId
   async function handleSendMessage(e: React.FormEvent) {
     e.preventDefault();
-
-    if (!canSendMessages) {
-      alert("Viewer access cannot send messages.");
-      return;
-    }
-
-    // Step 12 — Guard: must have an active chat
-    if (!activeChatId) {
-      alert("Create or select a chat first.");
-      return;
-    }
-
+    if (!canSendMessages) { alert("Viewer access cannot send messages."); return; }
+    if (!activeChatId) { alert("Create or select a chat first."); return; }
     if (!input.trim()) return;
 
     const token = getToken();
-
-    if (!token) {
-      router.push("/auth/login");
-      return;
-    }
+    if (!token) { router.push("/auth/login"); return; }
 
     const messageText = input;
     setInput("");
@@ -647,66 +549,39 @@ export default function ProjectChatPage() {
           ? `/api/projects/${projectId}/message/team`
           : `/api/projects/${projectId}/message/stream`;
 
-      // Step 12 — include chatId in body
       const res = await fetch(endpoint, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          content: messageText,
-          selectedRole,
-          chatId: activeChatId,
-        }),
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ content: messageText, selectedRole, chatId: activeChatId }),
       });
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        console.error("Send message failed:", errData);
         alert(errData.error || "Failed to send message.");
-
         setMessages((prev) =>
-          prev.filter(
-            (message) =>
-              message.id !== tempUserMessage.id &&
-              message.id !== tempAssistantMessage.id
-          )
+          prev.filter((m) => m.id !== tempUserMessage.id && m.id !== tempAssistantMessage.id)
         );
-
         return;
       }
 
       if (messageMode === "team") {
         const data = await res.json();
-
         setMessages((prev) =>
-          prev.map((message) =>
-            message.id === tempAssistantMessage.id
-              ? {
-                  ...message,
-                  model: "team-mode",
-                  content: data.assistantMessage?.content || "",
-                }
-              : message
+          prev.map((m) =>
+            m.id === tempAssistantMessage.id
+              ? { ...m, model: "team-mode", content: data.assistantMessage?.content || "" }
+              : m
           )
         );
-
         await fetchProject();
         return;
       }
 
       if (!res.body) {
         alert("Streaming response was empty.");
-
         setMessages((prev) =>
-          prev.filter(
-            (message) =>
-              message.id !== tempUserMessage.id &&
-              message.id !== tempAssistantMessage.id
-          )
+          prev.filter((m) => m.id !== tempUserMessage.id && m.id !== tempAssistantMessage.id)
         );
-
         return;
       }
 
@@ -716,17 +591,12 @@ export default function ProjectChatPage() {
 
       while (true) {
         const { done, value } = await reader.read();
-
         if (done) break;
-
         const chunk = decoder.decode(value, { stream: true });
         streamedText += chunk;
-
         setMessages((prev) =>
-          prev.map((message) =>
-            message.id === tempAssistantMessage.id
-              ? { ...message, content: streamedText }
-              : message
+          prev.map((m) =>
+            m.id === tempAssistantMessage.id ? { ...m, content: streamedText } : m
           )
         );
       }
@@ -735,13 +605,8 @@ export default function ProjectChatPage() {
     } catch (error) {
       console.error("Message send error:", error);
       alert("Failed to send message.");
-
       setMessages((prev) =>
-        prev.filter(
-          (message) =>
-            message.id !== tempUserMessage.id &&
-            message.id !== tempAssistantMessage.id
-        )
+        prev.filter((m) => m.id !== tempUserMessage.id && m.id !== tempAssistantMessage.id)
       );
     } finally {
       setIsStreaming(false);
@@ -774,17 +639,13 @@ export default function ProjectChatPage() {
 
         <div className="flex items-center gap-3">
           <button
-            onClick={async () => {
-              setMembersOpen(true);
-              await fetchMembers();
-            }}
+            onClick={async () => { setMembersOpen(true); await fetchMembers(); }}
             title="Project members"
             className="flex items-center gap-2 rounded-lg border border-neutral-800 px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-900"
           >
             <UserPlus size={16} />
             {canManageProject ? "Invite" : "Members"}
           </button>
-
           <button
             onClick={() => setUsageOpen(true)}
             className="flex items-center gap-2 rounded-lg border border-neutral-800 px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-900"
@@ -804,7 +665,7 @@ export default function ProjectChatPage() {
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <aside className="flex w-16 shrink-0 flex-col items-center justify-between border-r border-neutral-800 bg-black py-5">
           <button
-            onClick={() => setSidebarOpen((value) => !value)}
+            onClick={() => setSidebarOpen((v) => !v)}
             className="rounded-lg p-2 text-neutral-400 hover:bg-neutral-900 hover:text-white"
           >
             {sidebarOpen ? <X size={22} /> : <Menu size={22} />}
@@ -828,16 +689,13 @@ export default function ProjectChatPage() {
         {sidebarOpen && (
           <aside className="w-72 shrink-0 border-r border-neutral-800 bg-neutral-950 p-5">
             <div>
-              <h2 className="truncate text-sm font-semibold text-white">
-                {project?.name}
-              </h2>
+              <h2 className="truncate text-sm font-semibold text-white">{project?.name}</h2>
               <p className="mt-1 line-clamp-2 text-xs text-neutral-500">
                 {project?.description || "No description"}
               </p>
             </div>
 
             <div className="mt-8 space-y-2">
-              {/* Step 11 — New Chat button */}
               <button
                 onClick={createNewChat}
                 className="w-full rounded-xl bg-white px-4 py-2.5 text-left text-sm font-medium text-black hover:bg-neutral-200"
@@ -853,7 +711,6 @@ export default function ProjectChatPage() {
                 New Project
               </button>
 
-              {/* Step 13 — Chat List button */}
               <button
                 onClick={() => setChatListOpen(true)}
                 className="w-full rounded-xl px-4 py-2.5 text-left text-sm text-neutral-300 hover:bg-neutral-900"
@@ -861,7 +718,6 @@ export default function ProjectChatPage() {
                 Chat List
               </button>
 
-              {/* Step 15 — Delete Chat button (renamed from History) */}
               <button
                 onClick={deleteChat}
                 className="w-full rounded-xl px-4 py-2.5 text-left text-sm text-red-400 hover:bg-neutral-900"
@@ -888,9 +744,7 @@ export default function ProjectChatPage() {
 
             <div className="mt-8 rounded-2xl border border-neutral-800 bg-black p-4 text-sm">
               <p className="font-medium text-white">Token Usage</p>
-              <p className="mt-2 text-3xl font-bold">
-                {usage?.totalTokensToday ?? 0}
-              </p>
+              <p className="mt-2 text-3xl font-bold">{usage?.totalTokensToday ?? 0}</p>
               <p className="text-sm text-neutral-500">
                 Cost today: ${usage?.totalCostToday?.toFixed(4) || "0.0000"}
               </p>
@@ -911,12 +765,35 @@ export default function ProjectChatPage() {
         )}
 
         <section className="flex min-h-0 flex-1 flex-col overflow-hidden bg-black">
+          {/* Chat header with inline rename */}
           <div className="shrink-0 border-b border-neutral-800 px-6 py-4">
-            <h2 className="text-base font-semibold">
-              {activeChatId
-                ? chats.find((c) => c.id === activeChatId)?.title ?? project?.name
-                : project?.name}
-            </h2>
+            {editingChatTitle ? (
+              <input
+                value={chatTitleDraft}
+                onChange={(e) => setChatTitleDraft(e.target.value)}
+                onBlur={() => updateChatTitle()}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") updateChatTitle();
+                  if (e.key === "Escape") setEditingChatTitle(false);
+                }}
+                autoFocus
+                className="rounded-lg border border-neutral-700 bg-neutral-950 px-2 py-1 text-base font-semibold text-white outline-none"
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => activeChatIdRef.current && setEditingChatTitle(true)}
+                title={activeChatIdRef.current ? "Click to rename" : undefined}
+                className={`text-base font-semibold ${
+                  activeChatIdRef.current ? "cursor-pointer hover:underline" : "cursor-default"
+                }`}
+              >
+                {chats.find((c) => c.id === activeChatId)?.title || project?.name || "New Chat"}
+              </button>
+            )}
+            {activeChatId && !editingChatTitle && (
+              <p className="mt-0.5 text-xs text-neutral-600">Click title to rename</p>
+            )}
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
@@ -926,12 +803,9 @@ export default function ProjectChatPage() {
                   <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-black">
                     <Bot size={24} />
                   </div>
-                  <p className="mt-4 text-lg font-semibold">
-                    Start with a selected model
-                  </p>
+                  <p className="mt-4 text-lg font-semibold">Start with a selected model</p>
                   <p className="mt-2 text-sm text-neutral-500">
-                    Use the bottom model row to switch providers without opening
-                    API Manager.
+                    Use the bottom model row to switch providers without opening API Manager.
                   </p>
                 </div>
               </div>
@@ -948,9 +822,7 @@ export default function ProjectChatPage() {
                   >
                     <RichMessage content={message.content} />
                     {message.model && (
-                      <p className="mt-2 text-xs text-neutral-500">
-                        Model: {message.model}
-                      </p>
+                      <p className="mt-2 text-xs text-neutral-500">Model: {message.model}</p>
                     )}
                   </div>
                 ))}
@@ -996,27 +868,21 @@ export default function ProjectChatPage() {
                     type="button"
                     onClick={() => setMessageMode("single")}
                     className={`rounded-md px-4 py-2 text-sm ${
-                      messageMode === "single"
-                        ? "bg-white text-black"
-                        : "text-neutral-400 hover:text-white"
+                      messageMode === "single" ? "bg-white text-black" : "text-neutral-400 hover:text-white"
                     }`}
                   >
                     Single Model
                   </button>
-
                   <button
                     type="button"
                     onClick={() => setMessageMode("team")}
                     className={`rounded-md px-4 py-2 text-sm ${
-                      messageMode === "team"
-                        ? "bg-white text-black"
-                        : "text-neutral-400 hover:text-white"
+                      messageMode === "team" ? "bg-white text-black" : "text-neutral-400 hover:text-white"
                     }`}
                   >
                     Team Mode Pro
                   </button>
                 </div>
-
                 <p className="text-xs text-neutral-500">
                   Team Mode uses reasoning → execution → review.
                 </p>
@@ -1024,17 +890,14 @@ export default function ProjectChatPage() {
 
               {usage?.connectedProviders?.length === 0 && (
                 <p className="mt-3 rounded-xl border border-yellow-800 bg-yellow-950/40 px-4 py-3 text-sm text-yellow-300">
-                  No API keys connected. Go to API Manager to connect at least
-                  one model provider.
+                  No API keys connected. Go to API Manager to connect at least one model provider.
                 </p>
               )}
 
               <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-5">
                 {roleButtons.map((role) => {
                   const active = selectedRole === role.value;
-                  const providerLabel = getProviderLabel(
-                    roleProviders[role.value]
-                  );
+                  const providerLabel = getProviderLabel(roleProviders[role.value]);
 
                   return (
                     <div
@@ -1047,10 +910,7 @@ export default function ProjectChatPage() {
                     >
                       <button
                         type="button"
-                        onClick={() => {
-                          if (!canEditProject) return;
-                          setSelectedRole(role.value);
-                        }}
+                        onClick={() => { if (!canEditProject) return; setSelectedRole(role.value); }}
                         className="flex min-w-0 flex-1 items-center justify-center gap-2 px-3 py-2.5"
                       >
                         {role.icon}
@@ -1064,9 +924,7 @@ export default function ProjectChatPage() {
                         />
                         <select
                           value={roleProviders[role.value]}
-                          onChange={(e) =>
-                            updateRoleProvider(role.value, e.target.value)
-                          }
+                          onChange={(e) => updateRoleProvider(role.value, e.target.value)}
                           disabled={connectedOptions.length === 0 || !canEditProject}
                           title={`Change ${role.value} model`}
                           className="absolute inset-0 cursor-pointer opacity-0 disabled:cursor-not-allowed"
@@ -1084,10 +942,7 @@ export default function ProjectChatPage() {
 
                 <button
                   type="button"
-                  onClick={() => {
-                    if (!canEditProject) return;
-                    setSelectedRole("auto");
-                  }}
+                  onClick={() => { if (!canEditProject) return; setSelectedRole("auto"); }}
                   className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm ${
                     selectedRole === "auto"
                       ? "border-white bg-white text-black"
@@ -1103,7 +958,7 @@ export default function ProjectChatPage() {
         </section>
       </div>
 
-      {/* Step 13 — Chat List modal */}
+      {/* Chat List modal */}
       {chatListOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
           <div className="w-full max-w-xl rounded-2xl border border-neutral-800 bg-neutral-950 p-6 text-white">
@@ -1122,13 +977,10 @@ export default function ProjectChatPage() {
                 <p className="text-sm text-neutral-500">No chats yet. Create one to get started.</p>
               ) : (
                 chats.map((chat) => (
-                  <button
+                  <div
                     key={chat.id}
-                    onClick={() => {
-                      setActiveChatId(chat.id);
-                      setChatListOpen(false);
-                    }}
-                    className={`flex w-full items-center justify-between rounded-xl border px-4 py-3 text-left ${
+                    onClick={() => { setActiveChatId(chat.id); setChatListOpen(false); }}
+                    className={`flex w-full cursor-pointer items-center justify-between rounded-xl border px-4 py-3 ${
                       activeChatId === chat.id
                         ? "border-white bg-white text-black"
                         : "border-neutral-800 bg-black text-white hover:bg-neutral-900"
@@ -1141,18 +993,18 @@ export default function ProjectChatPage() {
                       </p>
                     </div>
 
-                    {/* Step 14 — Owner visibility toggle */}
                     {project?.my_role === "owner" ? (
                       <select
                         value={chat.visibility}
                         onClick={(e) => e.stopPropagation()}
                         onChange={(e) =>
-                          updateChatVisibility(
-                            chat.id,
-                            e.target.value as "public" | "private"
-                          )
+                          updateChatVisibility(chat.id, e.target.value as "public" | "private")
                         }
-                        className="rounded-lg border border-neutral-700 bg-black px-2 py-1 text-xs"
+                        className={`rounded-lg border px-2 py-1 text-xs ${
+                          activeChatId === chat.id
+                            ? "border-neutral-400 bg-white text-black"
+                            : "border-neutral-700 bg-black text-white"
+                        }`}
                       >
                         <option value="public">Public</option>
                         <option value="private">Private</option>
@@ -1162,7 +1014,7 @@ export default function ProjectChatPage() {
                         {chat.visibility}
                       </span>
                     )}
-                  </button>
+                  </div>
                 ))
               )}
             </div>
@@ -1177,9 +1029,7 @@ export default function ProjectChatPage() {
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-xl font-semibold">Usage Analysis</h2>
-                <p className="text-sm text-neutral-500">
-                  Token usage across connected models.
-                </p>
+                <p className="text-sm text-neutral-500">Token usage across connected models.</p>
               </div>
               <button
                 onClick={() => setUsageOpen(false)}
@@ -1190,9 +1040,7 @@ export default function ProjectChatPage() {
             </div>
 
             <div className="mt-6 rounded-2xl border border-neutral-800 bg-black p-5">
-              <p className="mt-2 text-3xl font-bold">
-                {usage?.totalTokensToday ?? 0}
-              </p>
+              <p className="mt-2 text-3xl font-bold">{usage?.totalTokensToday ?? 0}</p>
               <p className="text-sm text-neutral-500">
                 Cost today: ${usage?.totalCostToday?.toFixed(4) || "0.0000"}
               </p>
@@ -1211,26 +1059,17 @@ export default function ProjectChatPage() {
                 <div className="mt-4 space-y-4">
                   {usage.providerUsage.map((item) => {
                     const percentage =
-                      item.limit > 0
-                        ? Math.min((item.usedToday / item.limit) * 100, 100)
-                        : 0;
+                      item.limit > 0 ? Math.min((item.usedToday / item.limit) * 100, 100) : 0;
                     return (
                       <div key={item.provider}>
                         <div className="mb-1 flex justify-between text-sm">
                           <span className="capitalize">{item.provider}</span>
-                          <span className="text-neutral-500">
-                            {item.usedToday} / {item.limit}
-                          </span>
+                          <span className="text-neutral-500">{item.usedToday} / {item.limit}</span>
                         </div>
                         <div className="h-2 rounded-full bg-neutral-800">
-                          <div
-                            className="h-2 rounded-full bg-white"
-                            style={{ width: `${percentage}%` }}
-                          />
+                          <div className="h-2 rounded-full bg-white" style={{ width: `${percentage}%` }} />
                         </div>
-                        <p className="mt-1 text-xs text-neutral-500">
-                          Remaining: {item.remaining}
-                        </p>
+                        <p className="mt-1 text-xs text-neutral-500">Remaining: {item.remaining}</p>
                         <p className="text-xs text-neutral-400">
                           Cost: ${item.costToday?.toFixed(4) || "0.0000"}
                         </p>
@@ -1253,9 +1092,7 @@ export default function ProjectChatPage() {
                       className="flex justify-between rounded-xl border border-neutral-800 bg-neutral-950 px-4 py-3 text-sm"
                     >
                       <span>{item.model}</span>
-                      <span className="text-neutral-400">
-                        {item.tokens_used} tokens
-                      </span>
+                      <span className="text-neutral-400">{item.tokens_used} tokens</span>
                     </div>
                   ))}
                 </div>
@@ -1265,7 +1102,7 @@ export default function ProjectChatPage() {
             <div className="mt-6 rounded-2xl border border-neutral-800 bg-black p-5">
               <h3 className="font-semibold mb-4">Usage Trend</h3>
               {usage?.usageByDay?.length ? (
-                <div style={{ width: "100%", height: 260, minHeight: 260 }}>
+                <div style={{ width: "100%", height: 260 }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={usage.usageByDay}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#262626" />
@@ -1284,7 +1121,7 @@ export default function ProjectChatPage() {
             <div className="mt-6 rounded-2xl border border-neutral-800 bg-black p-5">
               <h3 className="font-semibold mb-4">Usage by Provider</h3>
               {usage?.providerUsage?.length ? (
-                <div style={{ width: "100%", height: 260, minHeight: 260 }}>
+                <div style={{ width: "100%", height: 260 }}>
                   <ResponsiveContainer width="100%" height={260}>
                     <BarChart data={usage.providerUsage}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#262626" />
@@ -1325,48 +1162,23 @@ export default function ProjectChatPage() {
             />
 
             <div className="flex gap-2 mb-2 text-sm">
-              <button
-                type="button"
-                onClick={() => setEditInstructions((prev) => prev + "**bold** ")}
-                className="rounded px-2 py-1 border border-neutral-700 hover:bg-neutral-800 font-bold"
-              >
-                B
-              </button>
-              <button
-                type="button"
-                onClick={() => setEditInstructions((prev) => prev + "*italic* ")}
-                className="rounded px-2 py-1 border border-neutral-700 hover:bg-neutral-800 italic"
-              >
-                I
-              </button>
-              <button
-                type="button"
-                onClick={() => setEditInstructions((prev) => prev + "- item\n")}
-                className="rounded px-2 py-1 border border-neutral-700 hover:bg-neutral-800"
-              >
-                •
-              </button>
-              <button
-                type="button"
-                onClick={() => setEditInstructions((prev) => prev + "## Heading\n")}
-                className="rounded px-2 py-1 border border-neutral-700 hover:bg-neutral-800"
-              >
-                H
-              </button>
-              <button
-                type="button"
-                onClick={() => setEditInstructions((prev) => prev + "> quote\n")}
-                className="rounded px-2 py-1 border border-neutral-700 hover:bg-neutral-800"
-              >
-                ❝
-              </button>
-              <button
-                type="button"
-                onClick={() => setEditInstructions((prev) => prev + "`code` ")}
-                className="rounded px-2 py-1 border border-neutral-700 hover:bg-neutral-800 font-mono"
-              >
-                {"</>"}
-              </button>
+              {[
+                { label: "B", cls: "font-bold", insert: "**bold** " },
+                { label: "I", cls: "italic", insert: "*italic* " },
+                { label: "•", cls: "", insert: "- item\n" },
+                { label: "H", cls: "", insert: "## Heading\n" },
+                { label: "❝", cls: "", insert: "> quote\n" },
+                { label: "</>", cls: "font-mono", insert: "`code` " },
+              ].map(({ label, cls, insert }) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => setEditInstructions((prev) => prev + insert)}
+                  className={`rounded px-2 py-1 border border-neutral-700 hover:bg-neutral-800 ${cls}`}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
 
             <textarea
@@ -1375,10 +1187,7 @@ export default function ProjectChatPage() {
               className="w-full h-40 rounded-lg border border-neutral-800 bg-neutral-950 p-2 text-white outline-none resize-none font-mono text-sm"
               placeholder="Project instructions (max 4000 chars)"
             />
-
-            <p className="text-xs text-neutral-500 mt-1">
-              {editInstructions.length}/4000
-            </p>
+            <p className="text-xs text-neutral-500 mt-1">{editInstructions.length}/4000</p>
 
             <div className="flex justify-end gap-2 mt-4">
               <button
@@ -1407,9 +1216,7 @@ export default function ProjectChatPage() {
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-semibold">Project Members</h2>
-                <p className="text-sm text-neutral-500">
-                  Invite teammates and manage access.
-                </p>
+                <p className="text-sm text-neutral-500">Invite teammates and manage access.</p>
               </div>
               <button
                 onClick={() => setMembersOpen(false)}
@@ -1431,9 +1238,7 @@ export default function ProjectChatPage() {
                   />
                   <select
                     value={inviteRole}
-                    onChange={(e) =>
-                      setInviteRole(e.target.value as "editor" | "viewer")
-                    }
+                    onChange={(e) => setInviteRole(e.target.value as "editor" | "viewer")}
                     className="rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm outline-none"
                   >
                     <option value="viewer">Viewer</option>
@@ -1469,9 +1274,7 @@ export default function ProjectChatPage() {
                   >
                     <div>
                       <p className="text-sm font-medium">{member.email}</p>
-                      <p className="text-xs capitalize text-neutral-500">
-                        {member.role}
-                      </p>
+                      <p className="text-xs capitalize text-neutral-500">{member.role}</p>
                     </div>
                     {myProjectRole === "owner" && member.role !== "owner" && (
                       <button

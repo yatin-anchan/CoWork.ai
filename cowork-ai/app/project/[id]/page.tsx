@@ -42,6 +42,8 @@ type Chat = {
   visibility: "public" | "private";
   created_at: string;
   updated_at: string;
+  creator_email?: string;       // ← add
+  creator_role?: string;        // ← add
 };
 
 type Project = {
@@ -206,6 +208,148 @@ export default function ProjectChatPage() {
       )
     );
   }
+
+  async function retryAssistantMessage(assistantMessageId: string) {
+  if (!activeChatId) {
+    alert("Select a chat first.");
+    return;
+  }
+
+  const assistantIndex = messages.findIndex(
+    (message) => message.id === assistantMessageId
+  );
+
+  if (assistantIndex <= 0) {
+    alert("No previous user message found.");
+    return;
+  }
+
+  const previousUserMessage = [...messages]
+    .slice(0, assistantIndex)
+    .reverse()
+    .find((message) => message.role === "user");
+
+  if (!previousUserMessage) {
+    alert("No previous user message found.");
+    return;
+  }
+
+  const token = getToken();
+
+  if (!token) {
+    router.push("/auth/login");
+    return;
+  }
+
+  setIsStreaming(true);
+
+  setMessages((prev) =>
+    prev.map((message) =>
+      message.id === assistantMessageId
+        ? {
+            ...message,
+            content: "",
+            model:
+              messageMode === "team"
+                ? "team-mode"
+                : selectedRole === "auto"
+                  ? "streaming"
+                  : getProviderLabel(roleProviders[selectedRole]),
+          }
+        : message
+    )
+  );
+
+  try {
+    const endpoint =
+      messageMode === "team"
+        ? `/api/projects/${projectId}/message/team`
+        : `/api/projects/${projectId}/message/stream`;
+
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        content: previousUserMessage.content,
+        selectedRole,
+        chatId: activeChatId,
+      }),
+    });
+
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      alert(errData.error || "Failed to retry message.");
+      return;
+    }
+
+    if (messageMode === "team") {
+      const data = await res.json();
+
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.id === assistantMessageId
+            ? {
+                ...message,
+                model: "team-mode",
+                content: data.assistantMessage?.content || "",
+              }
+            : message
+        )
+      );
+
+      await fetchChatMessages(activeChatId);
+      return;
+    }
+
+    if (!res.body) {
+      alert("Streaming response was empty.");
+      return;
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let streamedText = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+
+      if (done) break;
+
+      const chunk = decoder.decode(value, { stream: true });
+      streamedText += chunk;
+
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.id === assistantMessageId
+            ? {
+                ...message,
+                content: streamedText,
+              }
+            : message
+        )
+      );
+    }
+
+    await fetchChatMessages(activeChatId);
+  } catch (error) {
+    console.error("Retry error:", error);
+    alert("Failed to retry message.");
+  } finally {
+    setIsStreaming(false);
+    await fetchUsage();
+  }
+}
+
+  async function copyToClipboard(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    alert("Failed to copy.");
+  }
+}
 
   async function fetchUsage() {
     const token = getToken();
@@ -820,7 +964,39 @@ export default function ProjectChatPage() {
                         : "mr-auto border-neutral-800 bg-neutral-950 text-white"
                     }`}
                   >
-                    <RichMessage content={message.content} />
+                   <div className="group">
+  <RichMessage content={message.content} />
+
+  <div className="mt-3 flex gap-2 opacity-0 transition-opacity group-hover:opacity-100">
+    <button
+      type="button"
+      onClick={() => copyToClipboard(message.content)}
+      className="rounded-lg border border-neutral-700 px-2 py-1 text-xs text-neutral-400 hover:bg-neutral-900 hover:text-white"
+    >
+      Copy
+    </button>
+
+    {canSendMessages && message.role === "assistant" && (
+      <button
+        type="button"
+        onClick={() => retryAssistantMessage(message.id)}
+        className="rounded-lg border border-neutral-700 px-2 py-1 text-xs text-neutral-400 hover:bg-neutral-900 hover:text-white"
+      >
+        Retry
+      </button>
+    )}
+
+    {canSendMessages && message.role === "user" && (
+      <button
+        type="button"
+        onClick={() => setInput(message.content)}
+        className="rounded-lg border border-neutral-700 px-2 py-1 text-xs text-neutral-400 hover:bg-neutral-900 hover:text-white"
+      >
+        Edit
+      </button>
+    )}
+  </div>
+</div>
                     {message.model && (
                       <p className="mt-2 text-xs text-neutral-500">Model: {message.model}</p>
                     )}
@@ -977,45 +1153,55 @@ export default function ProjectChatPage() {
                 <p className="text-sm text-neutral-500">No chats yet. Create one to get started.</p>
               ) : (
                 chats.map((chat) => (
-                  <div
-                    key={chat.id}
-                    onClick={() => { setActiveChatId(chat.id); setChatListOpen(false); }}
-                    className={`flex w-full cursor-pointer items-center justify-between rounded-xl border px-4 py-3 ${
-                      activeChatId === chat.id
-                        ? "border-white bg-white text-black"
-                        : "border-neutral-800 bg-black text-white hover:bg-neutral-900"
-                    }`}
-                  >
-                    <div>
-                      <p className="text-sm font-medium">{chat.title}</p>
-                      <p className="text-xs opacity-60">
-                        {new Date(chat.updated_at).toLocaleString()}
-                      </p>
-                    </div>
+  <div
+    key={chat.id}
+    onClick={() => { setActiveChatId(chat.id); setChatListOpen(false); }}
+    className={`flex w-full cursor-pointer items-center justify-between rounded-xl border px-4 py-3 ${
+      activeChatId === chat.id
+        ? "border-white bg-white text-black"
+        : "border-neutral-800 bg-black text-white hover:bg-neutral-900"
+    }`}
+  >
+    <div>
+      <p className="text-sm font-medium">{chat.title}</p>
+      <p className="text-xs opacity-60">
+        {new Date(chat.updated_at).toLocaleString()}
+      </p>
+      {chat.creator_email && (
+        <p className={`text-xs mt-0.5 ${activeChatId === chat.id ? "text-neutral-600" : "text-neutral-500"}`}>
+          Created by {chat.creator_email}
+          {chat.creator_role && (
+            <span className="ml-1 capitalize rounded-full border px-1.5 py-0.5 text-[10px] border-neutral-700">
+              {chat.creator_role}
+            </span>
+          )}
+        </p>
+      )}
+    </div>
 
-                    {project?.my_role === "owner" ? (
-                      <select
-                        value={chat.visibility}
-                        onClick={(e) => e.stopPropagation()}
-                        onChange={(e) =>
-                          updateChatVisibility(chat.id, e.target.value as "public" | "private")
-                        }
-                        className={`rounded-lg border px-2 py-1 text-xs ${
-                          activeChatId === chat.id
-                            ? "border-neutral-400 bg-white text-black"
-                            : "border-neutral-700 bg-black text-white"
-                        }`}
-                      >
-                        <option value="public">Public</option>
-                        <option value="private">Private</option>
-                      </select>
-                    ) : (
-                      <span className="rounded-full border px-2 py-0.5 text-xs capitalize">
-                        {chat.visibility}
-                      </span>
-                    )}
-                  </div>
-                ))
+    {project?.my_role === "owner" ? (
+      <select
+        value={chat.visibility}
+        onClick={(e) => e.stopPropagation()}
+        onChange={(e) =>
+          updateChatVisibility(chat.id, e.target.value as "public" | "private")
+        }
+        className={`rounded-lg border px-2 py-1 text-xs ${
+          activeChatId === chat.id
+            ? "border-neutral-400 bg-white text-black"
+            : "border-neutral-700 bg-black text-white"
+        }`}
+      >
+        <option value="public">Public</option>
+        <option value="private">Private</option>
+      </select>
+    ) : (
+      <span className="rounded-full border px-2 py-0.5 text-xs capitalize">
+        {chat.visibility}
+      </span>
+    )}
+  </div>
+))
               )}
             </div>
           </div>
@@ -1102,8 +1288,8 @@ export default function ProjectChatPage() {
             <div className="mt-6 rounded-2xl border border-neutral-800 bg-black p-5">
               <h3 className="font-semibold mb-4">Usage Trend</h3>
               {usage?.usageByDay?.length ? (
-                <div style={{ width: "100%", height: 260 }}>
-                  <ResponsiveContainer width="100%" height="100%">
+                <div style={{ width: "100%", height: 260,  minHeight: 260 }}>
+                  <ResponsiveContainer width="100%"  height={260}>
                     <LineChart data={usage.usageByDay}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#262626" />
                       <XAxis dataKey="date" tick={{ fontSize: 12, fill: "#a3a3a3" }} />

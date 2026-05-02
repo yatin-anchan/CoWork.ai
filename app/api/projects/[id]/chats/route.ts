@@ -13,7 +13,8 @@ const createChatSchema = z.object({
   visibility: z.enum(["public", "private"]).default("public"),
 });
 
-// GET /api/projects/[id]/chats — list all chats the user can see
+// GET /api/projects/[id]/chats?activeChatId=<uuid>
+// Returns only non-empty chats PLUS the activeChatId (if valid) even if it has no messages yet.
 export async function GET(req: NextRequest, context: RouteParams) {
   try {
     const user = getAuthUser(req);
@@ -30,13 +31,21 @@ export async function GET(req: NextRequest, context: RouteParams) {
       return NextResponse.json({ error: "Project not found." }, { status: 404 });
     }
 
-    // Owners and editors see all chats; viewers only see public chats
-    const chats =
-      access.role === "owner"
+    // Only treat activeChatId as valid when it's actually a non-empty string
+    const activeChatId = req.nextUrl.searchParams.get("activeChatId") || null;
+
+    const chats = activeChatId
+      ? access.role === "owner"
         ? await sql`
             SELECT id, project_id, user_id, title, visibility, created_at, updated_at
             FROM chats
             WHERE project_id = ${projectId}
+            AND (
+              id = ${activeChatId}
+              OR EXISTS (
+                SELECT 1 FROM contexts WHERE contexts.chat_id = chats.id
+              )
+            )
             ORDER BY updated_at DESC
           `
         : await sql`
@@ -44,6 +53,32 @@ export async function GET(req: NextRequest, context: RouteParams) {
             FROM chats
             WHERE project_id = ${projectId}
             AND visibility = 'public'
+            AND (
+              id = ${activeChatId}
+              OR EXISTS (
+                SELECT 1 FROM contexts WHERE contexts.chat_id = chats.id
+              )
+            )
+            ORDER BY updated_at DESC
+          `
+      : access.role === "owner"
+        ? await sql`
+            SELECT id, project_id, user_id, title, visibility, created_at, updated_at
+            FROM chats
+            WHERE project_id = ${projectId}
+            AND EXISTS (
+              SELECT 1 FROM contexts WHERE contexts.chat_id = chats.id
+            )
+            ORDER BY updated_at DESC
+          `
+        : await sql`
+            SELECT id, project_id, user_id, title, visibility, created_at, updated_at
+            FROM chats
+            WHERE project_id = ${projectId}
+            AND visibility = 'public'
+            AND EXISTS (
+              SELECT 1 FROM contexts WHERE contexts.chat_id = chats.id
+            )
             ORDER BY updated_at DESC
           `;
 
@@ -93,7 +128,6 @@ export async function POST(req: NextRequest, context: RouteParams) {
 
     const { visibility } = parsed.data;
 
-    // Auto-name: "Chat N" based on how many chats already exist in this project
     const countRows = await sql`
       SELECT COUNT(*) AS count
       FROM chats

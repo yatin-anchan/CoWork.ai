@@ -1114,24 +1114,17 @@ function PricingSection({ dark }: ThemeProps) {
     () => [
       {
         name: "Free",
-        price: "$0",
+        price: "₹0",
         description: "For personal exploration.",
         features: ["Projects and chats", "Single-model responses", "Basic project instructions", "Bring your own API keys"],
         highlighted: false,
       },
       {
         name: "Pro",
-        price: annual ? "$19" : "$25",
+        price: annual ? "₹290" : "₹350",
         description: "For serious builders.",
-        features: ["Unlimited projects", "AI Team Mode", "Message versioning", "Usage analytics", "Advanced project memory"],
+        features: ["Unlimited projects", "AI Team Mode", "Usage analytics", "Shared projects", "Owner/editor/viewer roles", "Public/private chats", "Priority support"],
         highlighted: true,
-      },
-      {
-        name: "Team",
-        price: annual ? "$49" : "$59",
-        description: "For collaborative teams.",
-        features: ["Shared projects", "Owner/editor/viewer roles", "Public/private chats", "Admin controls", "Priority support"],
-        highlighted: false,
       },
     ],
     [annual]
@@ -1139,7 +1132,7 @@ function PricingSection({ dark }: ThemeProps) {
 
   return (
     <section id="pricing" style={{ position: "relative", zIndex: 1, padding: "90px 24px" }}>
-      <div style={{ maxWidth: 1120, margin: "0 auto" }}>
+      <div style={{ maxWidth: 850, margin: "0 auto" }}>
         <SectionHeader
           dark={dark}
           eyebrow="PRICING"

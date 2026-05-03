@@ -34,65 +34,134 @@ export async function POST(req: NextRequest, context: RouteParams) {
 
     const {
       includeQuestions = true,
-      format = "pdf", // pdf or txt
+      format = "pdf",
+      messageIds = null,
     } = body;
 
-    const messages = await sql`
-      SELECT role, content, timestamp
+    const hasSelectedMessages =
+      Array.isArray(messageIds) && messageIds.length > 0;
+
+    const messages = hasSelectedMessages
+      ? includeQuestions
+        ? await sql`
+    WITH selected_messages AS (
+      SELECT id, role, reply_to_message_id, timestamp
       FROM contexts
       WHERE project_id = ${projectId}
       AND chat_id = ${chatId}
-      AND active_version = true
-      ORDER BY timestamp ASC
-    `;
+      AND id = ANY(${messageIds})
+    ),
+    direct_parent_questions AS (
+      SELECT reply_to_message_id AS id
+      FROM selected_messages
+      WHERE role = 'assistant'
+      AND reply_to_message_id IS NOT NULL
+    ),
+    fallback_parent_questions AS (
+      SELECT DISTINCT ON (selected_messages.id)
+        previous_user.id
+      FROM selected_messages
+      JOIN LATERAL (
+        SELECT contexts.id
+        FROM contexts
+        WHERE contexts.project_id = ${projectId}
+        AND contexts.chat_id = ${chatId}
+        AND contexts.role = 'user'
+        AND contexts.timestamp < selected_messages.timestamp
+        ORDER BY contexts.timestamp DESC
+        LIMIT 1
+      ) previous_user ON true
+      WHERE selected_messages.role = 'assistant'
+      AND selected_messages.reply_to_message_id IS NULL
+    ),
+    export_ids AS (
+      SELECT id FROM selected_messages
+      UNION
+      SELECT id FROM direct_parent_questions
+      UNION
+      SELECT id FROM fallback_parent_questions
+    )
+    SELECT DISTINCT
+      contexts.id,
+      contexts.role,
+      contexts.content,
+      contexts.timestamp
+    FROM contexts
+    JOIN export_ids ON export_ids.id = contexts.id
+    WHERE contexts.project_id = ${projectId}
+    AND contexts.chat_id = ${chatId}
+    ORDER BY contexts.timestamp ASC
+  `
+        : await sql`
+            SELECT id, role, content, timestamp
+            FROM contexts
+            WHERE project_id = ${projectId}
+            AND chat_id = ${chatId}
+            AND id = ANY(${messageIds})
+            ORDER BY timestamp ASC
+          `
+      : await sql`
+          SELECT id, role, content, timestamp
+          FROM contexts
+          WHERE project_id = ${projectId}
+          AND chat_id = ${chatId}
+          AND active_version = true
+          ORDER BY timestamp ASC
+        `;
 
     let formattedText = "";
 
     for (const msg of messages) {
       if (!includeQuestions && msg.role === "user") continue;
 
-      if (msg.role === "user") {
-        formattedText += `\n\nUSER:\n${msg.content}\n`;
-      } else {
-        formattedText += `\n\nASSISTANT:\n${msg.content}\n`;
-      }
+      formattedText += `\n\n${String(msg.role).toUpperCase()}:\n${msg.content}\n`;
     }
 
-    // TXT fallback
+    formattedText = formattedText.trim();
+
     if (format === "txt") {
       return NextResponse.json({
-        content: formattedText.trim(),
+        content: formattedText,
       });
     }
 
-    // -------- PDF GENERATION --------
     const pdfDoc = await PDFDocument.create();
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
 
-    const page = pdfDoc.addPage();
+    let page = pdfDoc.addPage();
     const { width, height } = page.getSize();
 
     let y = height - 40;
 
     const fontSize = 10;
     const lineHeight = 14;
-    const maxWidth = width - 80;
 
     function wrapText(text: string, maxChars = 90) {
-      const words = text.split(" ");
-      let lines: string[] = [];
-      let current = "";
+      const lines: string[] = [];
 
-      for (const word of words) {
-        if ((current + word).length > maxChars) {
-          lines.push(current);
-          current = word + " ";
-        } else {
-          current += word + " ";
+      for (const paragraph of text.split("\n")) {
+        if (!paragraph.trim()) {
+          lines.push("");
+          continue;
+        }
+
+        const words = paragraph.split(" ");
+        let current = "";
+
+        for (const word of words) {
+          if ((current + word).length > maxChars) {
+            lines.push(current.trim());
+            current = `${word} `;
+          } else {
+            current += `${word} `;
+          }
+        }
+
+        if (current.trim()) {
+          lines.push(current.trim());
         }
       }
 
-      if (current) lines.push(current);
       return lines;
     }
 
@@ -100,21 +169,11 @@ export async function POST(req: NextRequest, context: RouteParams) {
 
     for (const line of lines) {
       if (y < 40) {
-        const newPage = pdfDoc.addPage();
+        page = pdfDoc.addPage();
         y = height - 40;
-
-        newPage.drawText(line, {
-          x: 40,
-          y,
-          size: fontSize,
-          font,
-          color: rgb(0, 0, 0),
-        });
-
-        continue;
       }
 
-      page.drawText(line, {
+      page.drawText(line || " ", {
         x: 40,
         y,
         size: fontSize,

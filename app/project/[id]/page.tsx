@@ -782,6 +782,8 @@ export default function ProjectChatPage() {
 
   const [exportOpen, setExportOpen] = useState(false);
 const [exportIncludeQuestions, setExportIncludeQuestions] = useState(true);
+const [selectMode, setSelectMode] = useState(false);
+const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
 
   const [showSettings, setShowSettings] = useState(false);
   const [editName, setEditName] = useState("");
@@ -813,6 +815,14 @@ const [exportIncludeQuestions, setExportIncludeQuestions] = useState(true);
     return providerOptions.find((item) => item.value === provider)?.label || provider;
   }
 
+  function toggleSelectedMessage(messageId: string) {
+  setSelectedMessageIds((prev) =>
+    prev.includes(messageId)
+      ? prev.filter((id) => id !== messageId)
+      : [...prev, messageId]
+  );
+}
+
   function getConnectedProviderOptions() {
     if (!usage?.connectedProviders?.length) return [];
     return providerOptions.filter((provider) =>
@@ -820,8 +830,15 @@ const [exportIncludeQuestions, setExportIncludeQuestions] = useState(true);
     );
   }
 
-  async function exportChat(format: "pdf" | "txt") {
+  async function exportChat(format: "pdf" | "txt" | "docx") {
+  if (!activeChatId) return;
+  if (selectMode && selectedMessageIds.length === 0) {
+  alert("Select at least one message to export.");
+  return;
+}
+
   const token = getToken();
+  if (!token) return;
 
   const res = await fetch(
     `/api/projects/${projectId}/chats/${activeChatId}/export`,
@@ -834,6 +851,10 @@ const [exportIncludeQuestions, setExportIncludeQuestions] = useState(true);
       body: JSON.stringify({
         includeQuestions: exportIncludeQuestions,
         format,
+        messageIds:
+          selectMode && selectedMessageIds.length > 0
+            ? selectedMessageIds
+            : null,
       }),
     }
   );
@@ -845,15 +866,21 @@ const [exportIncludeQuestions, setExportIncludeQuestions] = useState(true);
   }
 
   const blob = await res.blob();
-
   const url = URL.createObjectURL(blob);
+
   const a = document.createElement("a");
-
   a.href = url;
-  a.download = format === "pdf" ? "chat.pdf" : "chat.txt";
-  a.click();
+  a.download =
+    format === "pdf"
+      ? "chat-export.pdf"
+      : format === "docx"
+        ? "chat-export.docx"
+        : "chat-export.txt";
 
+  a.click();
   URL.revokeObjectURL(url);
+
+  setExportOpen(false);
 }
 
   async function copyToClipboard(text: string) {
@@ -1235,6 +1262,15 @@ const [exportIncludeQuestions, setExportIncludeQuestions] = useState(true);
             className="cw-nav-btn"> 
             Export
           </button>
+          <button
+  onClick={() => {
+    setSelectMode((prev) => !prev);
+    setSelectedMessageIds([]);
+  }}
+  className="rounded-lg border border-neutral-800 px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-900"
+>
+  {selectMode ? "Cancel Select" : "Select"}
+</button>
           <button onClick={() => setUsageOpen(true)} className="cw-nav-btn">
             <BarChart3 size={13} />
             <span>Usage</span>
@@ -1388,7 +1424,15 @@ const [exportIncludeQuestions, setExportIncludeQuestions] = useState(true);
                   return (
                     <div key={group.groupId} className="cw-msg-group" style={{ marginBottom: 14 }}>
                       <div className={`cw-bubble ${isUser ? "cw-bubble-user" : "cw-bubble-ai"}`}>
-
+                        
+                        {selectMode && isUuid(message.id) && (
+  <input
+    type="checkbox"
+    checked={selectedMessageIds.includes(message.id)}
+    onChange={() => toggleSelectedMessage(message.id)}
+    className="mt-2"
+  />
+)}
                         {editingMessageId === message.id ? (
                           <div>
                             <textarea
@@ -1406,6 +1450,7 @@ const [exportIncludeQuestions, setExportIncludeQuestions] = useState(true);
                             </div>
                           </div>
                         ) : (
+                          
                           <RichMessage content={message.content} />
                         )}
 
@@ -1733,6 +1778,13 @@ const [exportIncludeQuestions, setExportIncludeQuestions] = useState(true);
           Close
         </button>
       </div>
+
+      {selectMode && (
+  <p className="mt-3 text-xs text-neutral-500">
+    {selectedMessageIds.length} selected message(s) will be exported.
+  </p>
+  
+)}
 
       <div className="mt-5 space-y-3">
         <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-neutral-800 bg-black p-4">

@@ -1059,19 +1059,23 @@ export default function ProjectChatPage() {
   }
 
   async function inviteMember() {
-    const token = getToken();
-    if (!token) { router.push("/auth/login"); return; }
-    if (!inviteEmail.trim()) { alert("Enter an email address."); return; }
-    const res = await fetch(`/api/projects/${projectId}/members`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ email: inviteEmail.trim(), role: inviteRole }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) { alert(data.error || "Failed to invite."); return; }
-    setInviteEmail(""); setInviteRole("viewer");
-    await fetchMembers();
-  }
+  const token = getToken();
+  if (!token) { router.push("/auth/login"); return; }
+  if (!inviteEmail.trim()) { alert("Enter an email address."); return; }
+
+  const res = await fetch(`/api/projects/${projectId}/invites`, {  // ← was /members
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ email: inviteEmail.trim(), role: inviteRole }),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) { alert(data.error || "Failed to send invite."); return; }
+
+  alert(`Invite sent to ${inviteEmail.trim()}`);  // optional feedback
+  setInviteEmail("");
+  setInviteRole("viewer");
+}
 
   async function removeMember(userId: string) {
     const token = getToken();
@@ -1514,8 +1518,6 @@ export default function ProjectChatPage() {
             <div className="cw-input-max">
 
               {/* File chips strip — shown when files are attached */}
-              
-
               <div className="cw-input-shell">
 
                 {/* ── Attach button (paperclip icon) ── */}

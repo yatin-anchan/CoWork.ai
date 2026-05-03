@@ -11,14 +11,17 @@ import {
   ChevronDown,
   Code2,
   FileSearch,
+  FileText,
   LayoutDashboard,
   Menu,
+  Paperclip,
   Plus,
   Send,
   Settings,
   ShieldCheck,
   Sun,
   Moon,
+  Trash2,
   User,
   X,
   UserPlus,
@@ -37,7 +40,7 @@ import {
   YAxis,
 } from "recharts";
 
-// ─── Types (unchanged) ──────────────────────────────────────────────────────
+// ─── Types ──────────────────────────────────────────────────────────────────
 
 type Chat = {
   id: string;
@@ -75,6 +78,13 @@ type ContextMessage = {
   content: string;
   tokens_used: number;
   timestamp: string;
+};
+
+type ProjectFile = {
+  id: string;
+  file_name: string;
+  file_type: string;
+  created_at: string;
 };
 
 type SelectedRole = "reasoning" | "research" | "execution" | "reviewing" | "auto";
@@ -122,7 +132,6 @@ const roleButtons: { value: keyof RoleProviderMap; icon: React.ReactNode; label:
   { value: "reviewing", icon: <ShieldCheck size={14} />, label: "Review" },
 ];
 
-// ─── Role color accents ──────────────────────────────────────────────────────
 const roleAccent: Record<string, string> = {
   reasoning: "#818cf8",
   research:  "#34d399",
@@ -130,6 +139,9 @@ const roleAccent: Record<string, string> = {
   reviewing: "#f472b6",
   auto:      "#60a5fa",
 };
+
+const ACCEPTED_FILE_TYPES = ".txt,.md,.pdf,.csv,.json,.js,.ts,.tsx,.jsx,.py,.html,.css,.xml,.yaml,.yml";
+const MAX_FILES = 5;
 
 // ─── Theme CSS ───────────────────────────────────────────────────────────────
 
@@ -206,12 +218,10 @@ const themeStyles = `
     position: relative;
   }
 
-  /* Scrollbar */
   .cw-root *::-webkit-scrollbar { width: 3px; height: 3px; }
   .cw-root *::-webkit-scrollbar-track { background: transparent; }
   .cw-root *::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 99px; }
 
-  /* Ambient orbs */
   .cw-ambient { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
   .cw-orb { position: absolute; border-radius: 50%; filter: blur(88px); animation: cwOrbF 20s ease-in-out infinite; will-change: transform; }
   .cw-orb1 { width: 560px; height: 560px; background: rgba(77,159,255,0.09); top: -140px; left: -100px; animation-delay: 0s; }
@@ -223,7 +233,6 @@ const themeStyles = `
     66%      { transform: translate(-18px,26px) scale(0.97); }
   }
 
-  /* Navbar */
   .cw-navbar {
     display: flex; align-items: center; justify-content: space-between;
     height: 56px; padding: 0 18px; flex-shrink: 0; z-index: 100;
@@ -258,7 +267,6 @@ const themeStyles = `
   }
   .cw-nav-btn:hover { background: var(--bg-s); border-color: var(--b-mid); color: var(--t1); transform: translateY(-1px); }
 
-  /* Theme toggle */
   .cw-theme-toggle {
     position: relative; width: 50px; height: 26px;
     background: var(--bg-e); border: 1px solid var(--b-mid); border-radius: 99px;
@@ -272,10 +280,8 @@ const themeStyles = `
   }
   .cw-light .cw-theme-toggle::after { transform: translateX(22px); }
 
-  /* Body layout */
   .cw-body { display: flex; flex: 1; min-height: 0; overflow: hidden; position: relative; z-index: 1; }
 
-  /* Icon sidebar */
   .cw-icon-sidebar {
     width: 54px; flex-shrink: 0;
     background: var(--side-bg);
@@ -294,7 +300,6 @@ const themeStyles = `
   .cw-icon-btn:hover { background: var(--bg-e); color: var(--t1); transform: scale(1.1); }
   .cw-icon-btn.active { background: var(--bg-e); color: var(--accent); box-shadow: 0 0 12px rgba(77,159,255,0.2); }
 
-  /* Expanded sidebar */
   .cw-sidebar {
     width: 252px; flex-shrink: 0;
     background: var(--side-bg);
@@ -350,10 +355,8 @@ const themeStyles = `
   .cw-pulse { width: 5px; height: 5px; background: var(--accent); border-radius: 50%; animation: cwPulse 2s ease-in-out infinite; }
   @keyframes cwPulse { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:0.4; transform:scale(0.7); } }
 
-  /* Chat main */
   .cw-chat-main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
 
-  /* Chat header */
   .cw-chat-header {
     padding: 13px 22px; border-bottom: 1px solid var(--b-soft); flex-shrink: 0;
     display: flex; align-items: center; justify-content: space-between;
@@ -383,10 +386,8 @@ const themeStyles = `
     font-size: 10.5px; color: var(--t2);
   }
 
-  /* Messages */
   .cw-messages { flex: 1; overflow-y: auto; padding: 22px; display: flex; flex-direction: column; gap: 14px; }
 
-  /* Empty state */
   .cw-empty {
     flex: 1; display: flex; flex-direction: column; align-items: center;
     justify-content: center; text-align: center; gap: 14px;
@@ -404,7 +405,6 @@ const themeStyles = `
   .cw-empty-title { font-family: 'Syne', sans-serif; font-size: 17px; font-weight: 700; color: var(--t1); }
   .cw-empty-sub { font-size: 12.5px; color: var(--t2); max-width: 280px; line-height: 1.6; }
 
-  /* Message groups */
   .cw-msg-group { display: flex; flex-direction: column; animation: cwMsgIn 0.38s var(--ease); }
   @keyframes cwMsgIn { from { opacity:0; transform:translateY(10px) scale(0.98); } to { opacity:1; transform:translateY(0) scale(1); } }
 
@@ -414,16 +414,8 @@ const themeStyles = `
     transition: transform 0.2s var(--ease), box-shadow 0.2s;
   }
   .cw-bubble:hover { transform: translateY(-1px); box-shadow: 0 6px 22px rgba(0,0,0,0.1); }
-
-  .cw-bubble-user {
-    margin-left: auto; max-width: 78%;
-    background: var(--msg-u-bg); border: 1px solid var(--msg-u-b); color: var(--t1);
-  }
-  .cw-bubble-ai {
-    margin-right: auto; max-width: 78%;
-    background: var(--msg-a-bg); border: 1px solid var(--msg-a-b); color: var(--t1);
-    backdrop-filter: blur(12px);
-  }
+  .cw-bubble-user { margin-left: auto; max-width: 78%; background: var(--msg-u-bg); border: 1px solid var(--msg-u-b); color: var(--t1); }
+  .cw-bubble-ai { margin-right: auto; max-width: 78%; background: var(--msg-a-bg); border: 1px solid var(--msg-a-b); color: var(--t1); backdrop-filter: blur(12px); }
 
   .cw-model-chip {
     display: inline-flex; align-items: center; gap: 4px;
@@ -452,17 +444,12 @@ const themeStyles = `
   .cw-ver-btn:hover { background: var(--bg-s); color: var(--t1); }
   .cw-ver-btn:disabled { opacity: 0.3; cursor: default; }
 
-  /* Streaming dots */
   .cw-dots { display: inline-flex; gap: 3px; padding: 4px 0; }
-  .cw-dots span {
-    width: 5px; height: 5px; background: var(--accent); border-radius: 50%;
-    animation: cwBounce 1.2s ease-in-out infinite;
-  }
+  .cw-dots span { width: 5px; height: 5px; background: var(--accent); border-radius: 50%; animation: cwBounce 1.2s ease-in-out infinite; }
   .cw-dots span:nth-child(2) { animation-delay: 0.2s; }
   .cw-dots span:nth-child(3) { animation-delay: 0.4s; }
   @keyframes cwBounce { 0%,80%,100% { transform:translateY(0); } 40% { transform:translateY(-6px); } }
 
-  /* Edit area */
   .cw-edit-area {
     width: 100%; min-height: 80px; padding: 9px 12px;
     background: var(--bg-i); border: 1px solid var(--b-glow); border-radius: 10px;
@@ -471,7 +458,6 @@ const themeStyles = `
   }
   .cw-edit-actions { display: flex; gap: 7px; margin-top: 7px; }
 
-  /* Input area */
   .cw-input-area {
     flex-shrink: 0; border-top: 1px solid var(--b-soft);
     background: var(--bg-g); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
@@ -487,13 +473,45 @@ const themeStyles = `
   }
   .cw-input-shell:focus-within { border-color: var(--b-glow); box-shadow: 0 0 0 4px var(--b-glow2); }
 
+  /* ── File upload button ── */
   .cw-attach-btn {
     width: 32px; height: 32px; border-radius: 9px; border: 1px solid var(--b-soft);
     background: var(--bg-e); color: var(--t2);
     display: flex; align-items: center; justify-content: center;
-    cursor: pointer; flex-shrink: 0; transition: all 0.2s;
+    cursor: pointer; flex-shrink: 0; transition: all 0.2s; position: relative;
   }
-  .cw-attach-btn:hover { background: var(--bg-s); color: var(--t1); transform: rotate(90deg); }
+  .cw-attach-btn:hover { background: var(--bg-s); color: var(--accent); border-color: var(--b-glow); transform: scale(1.08); }
+  .cw-attach-btn.has-files { color: var(--accent); border-color: rgba(77,159,255,0.4); background: var(--ag); }
+  .cw-attach-btn.uploading { opacity: 0.6; cursor: not-allowed; }
+  .cw-attach-count {
+    position: absolute; top: -5px; right: -5px;
+    width: 15px; height: 15px; border-radius: 50%;
+    background: var(--accent); color: var(--btn-fg);
+    font-size: 9px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Syne', sans-serif;
+  }
+
+  /* File chips strip */
+  .cw-file-strip {
+    display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px;
+    padding: 8px 12px;
+    background: var(--bg-e); border: 1px solid var(--b-soft); border-radius: 12px;
+    animation: cwFadeUp 0.2s var(--ease);
+  }
+  .cw-file-chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 8px; background: var(--bg-s); border: 1px solid var(--b-mid); border-radius: 8px;
+    font-size: 11px; color: var(--t2); max-width: 180px;
+  }
+  .cw-file-chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  .cw-file-chip-del {
+    width: 14px; height: 14px; border-radius: 4px; border: none;
+    background: transparent; color: var(--tm); cursor: pointer; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.15s; padding: 0;
+  }
+  .cw-file-chip-del:hover { background: rgba(248,113,113,0.15); color: #f87171; }
 
   .cw-text-input {
     flex: 1; background: transparent; border: none; outline: none;
@@ -513,7 +531,6 @@ const themeStyles = `
   .cw-send-btn:hover { transform: scale(1.08) rotate(-5deg); }
   .cw-send-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
 
-  /* Mode row */
   .cw-mode-row {
     margin-top: 9px; display: flex; align-items: center; justify-content: space-between;
     background: var(--bg-e); border: 1px solid var(--b-soft); border-radius: 12px; padding: 5px 12px 5px 5px;
@@ -527,7 +544,6 @@ const themeStyles = `
   .cw-mode-tab.active { background: var(--btn-bg); color: var(--btn-fg); }
   .cw-mode-hint { font-size: 11px; color: var(--tm); }
 
-  /* Role row */
   .cw-role-row { margin-top: 9px; display: grid; grid-template-columns: repeat(5,1fr); gap: 7px; }
 
   .cw-role-card {
@@ -545,14 +561,12 @@ const themeStyles = `
   .cw-role-chevron { padding: 0 7px 0 0; color: var(--tm); position: relative; }
   .cw-role-select { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
 
-  /* Warning */
   .cw-warn {
     margin-top: 9px; padding: 9px 13px; border-radius: 10px;
     border: 1px solid rgba(251,191,36,0.28); background: rgba(251,191,36,0.07);
     color: #fbbf24; font-size: 12px; line-height: 1.5;
   }
 
-  /* Modal backdrop */
   .cw-backdrop {
     position: fixed; inset: 0; z-index: 200;
     background: rgba(4,4,18,0.65); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
@@ -617,7 +631,6 @@ const themeStyles = `
   }
   .cw-btn-save:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,0.18); }
 
-  /* Usage panel */
   .cw-usage-panel {
     position: fixed; top: 0; right: 0; bottom: 0; width: 420px; z-index: 200;
     background: var(--modal-bg); backdrop-filter: blur(32px); -webkit-backdrop-filter: blur(32px);
@@ -643,7 +656,6 @@ const themeStyles = `
   .cw-model-row-name { color: var(--t1); font-weight: 500; }
   .cw-model-row-val { color: var(--t2); font-family: 'JetBrains Mono', monospace; font-size: 10.5px; }
 
-  /* Chat list */
   .cw-chat-item {
     display: flex; align-items: center; justify-content: space-between;
     padding: 11px 13px; border-radius: 13px; border: 1px solid var(--b-soft); background: var(--bg-e);
@@ -656,7 +668,6 @@ const themeStyles = `
   .cw-creator-info { font-size: 10.5px; color: var(--tm); margin-top: 1px; }
   .cw-creator-badge { display: inline-flex; align-items: center; margin-left: 5px; padding: 1px 6px; border: 1px solid var(--b-soft); border-radius: 99px; font-size: 9.5px; color: var(--t2); }
 
-  /* Member cards */
   .cw-member-card {
     display: flex; align-items: center; justify-content: space-between;
     padding: 11px 13px; border-radius: 13px; border: 1px solid var(--b-soft); background: var(--bg-e); margin-bottom: 7px;
@@ -670,12 +681,10 @@ const themeStyles = `
   .cw-member-email { font-size: 12.5px; font-weight: 500; color: var(--t1); }
   .cw-member-role { font-size: 10.5px; color: var(--t2); text-transform: capitalize; }
 
-  .cw-role-badge {
-    padding: 2px 8px; border-radius: 99px; font-size: 10px; font-weight: 600; text-transform: capitalize;
-  }
-  .cw-role-badge.owner   { background: rgba(77,159,255,0.14); color: #60a5fa; border: 1px solid rgba(77,159,255,0.24); }
-  .cw-role-badge.editor  { background: rgba(80,80,129,0.14); color: #a5b4fc; border: 1px solid rgba(80,80,129,0.24); }
-  .cw-role-badge.viewer  { background: var(--bg-e); color: var(--t2); border: 1px solid var(--b-soft); }
+  .cw-role-badge { padding: 2px 8px; border-radius: 99px; font-size: 10px; font-weight: 600; text-transform: capitalize; }
+  .cw-role-badge.owner  { background: rgba(77,159,255,0.14); color: #60a5fa; border: 1px solid rgba(77,159,255,0.24); }
+  .cw-role-badge.editor { background: rgba(80,80,129,0.14); color: #a5b4fc; border: 1px solid rgba(80,80,129,0.24); }
+  .cw-role-badge.viewer { background: var(--bg-e); color: var(--t2); border: 1px solid var(--b-soft); }
 
   .cw-btn-remove {
     padding: 4px 10px; border-radius: 7px; border: 1px solid rgba(248,113,113,0.24);
@@ -707,7 +716,6 @@ const themeStyles = `
     padding: 13px 15px; font-size: 12.5px; color: var(--t2); margin-top: 12px;
   }
 
-  /* Format toolbar */
   .cw-fmt-btn {
     padding: 4px 9px; border-radius: 6px; border: 1px solid var(--b-soft);
     background: var(--bg-e); color: var(--t2); font-size: 12px;
@@ -715,13 +723,11 @@ const themeStyles = `
   }
   .cw-fmt-btn:hover { background: var(--bg-s); color: var(--t1); }
 
-  /* Visibility select */
   .cw-vis-select {
     padding: 4px 9px; border-radius: 8px; border: 1px solid var(--b-soft);
     background: var(--bg-e); color: var(--t1); font-family: 'DM Sans', sans-serif; font-size: 11.5px; outline: none; cursor: pointer;
   }
 
-  /* Loading screen */
   .cw-loading {
     display: flex; height: 100vh; align-items: center; justify-content: center;
     background: #07071e; color: #9292b8;
@@ -730,6 +736,23 @@ const themeStyles = `
   .cw-loading-dot { width: 6px; height: 6px; background: #4D9FFF; border-radius: 50%; animation: cwPulse 1.4s ease-in-out infinite; }
   .cw-loading-dot:nth-child(2) { animation-delay: 0.2s; }
   .cw-loading-dot:nth-child(3) { animation-delay: 0.4s; }
+
+  /* Files modal */
+  .cw-files-drop {
+    border: 2px dashed var(--b-mid); border-radius: 14px;
+    padding: 28px; text-align: center; cursor: pointer;
+    transition: all 0.2s; margin-bottom: 14px;
+  }
+  .cw-files-drop:hover, .cw-files-drop.drag-over { border-color: var(--accent); background: var(--ag); }
+  .cw-files-drop-icon { color: var(--t2); margin-bottom: 8px; }
+  .cw-files-drop-text { font-size: 13px; color: var(--t2); line-height: 1.5; }
+  .cw-files-drop-hint { font-size: 11px; color: var(--tm); margin-top: 4px; }
+  .cw-file-list-item {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 12px; border-radius: 11px; border: 1px solid var(--b-soft); background: var(--bg-e); margin-bottom: 7px;
+  }
+  .cw-file-list-name { font-size: 12.5px; font-weight: 500; color: var(--t1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  .cw-file-list-meta { font-size: 10.5px; color: var(--tm); margin-top: 2px; }
 `;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -754,6 +777,8 @@ export default function ProjectChatPage() {
   const router = useRouter();
   const params = useParams();
   const projectId = params.id as string;
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [project, setProject] = useState<Project | null>(null);
   const [messages, setMessages] = useState<ContextMessage[]>([]);
@@ -781,9 +806,15 @@ export default function ProjectChatPage() {
   const [chatTitleDraft, setChatTitleDraft] = useState("");
 
   const [exportOpen, setExportOpen] = useState(false);
-const [exportIncludeQuestions, setExportIncludeQuestions] = useState(true);
-const [selectMode, setSelectMode] = useState(false);
-const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
+  const [exportIncludeQuestions, setExportIncludeQuestions] = useState(true);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
+
+  // ── File upload state ──────────────────────────────────────────────────────
+  const [filesOpen, setFilesOpen] = useState(false);
+  const [projectFiles, setProjectFiles] = useState<ProjectFile[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
 
   const [showSettings, setShowSettings] = useState(false);
   const [editName, setEditName] = useState("");
@@ -816,12 +847,12 @@ const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
   }
 
   function toggleSelectedMessage(messageId: string) {
-  setSelectedMessageIds((prev) =>
-    prev.includes(messageId)
-      ? prev.filter((id) => id !== messageId)
-      : [...prev, messageId]
-  );
-}
+    setSelectedMessageIds((prev) =>
+      prev.includes(messageId)
+        ? prev.filter((id) => id !== messageId)
+        : [...prev, messageId]
+    );
+  }
 
   function getConnectedProviderOptions() {
     if (!usage?.connectedProviders?.length) return [];
@@ -830,58 +861,127 @@ const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
     );
   }
 
-  async function exportChat(format: "pdf" | "txt" | "docx") {
-  if (!activeChatId) return;
-  if (selectMode && selectedMessageIds.length === 0) {
-  alert("Select at least one message to export.");
-  return;
-}
+  // ─── File upload handlers ─────────────────────────────────────────────────
 
-  const token = getToken();
-  if (!token) return;
-
-  const res = await fetch(
-    `/api/projects/${projectId}/chats/${activeChatId}/export`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        includeQuestions: exportIncludeQuestions,
-        format,
-        messageIds:
-          selectMode && selectedMessageIds.length > 0
-            ? selectedMessageIds
-            : null,
-      }),
+  async function fetchProjectFiles() {
+    const token = getToken();
+    if (!token) return;
+    try {
+      const res = await fetch(`/api/projects/${projectId}/files`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setProjectFiles(data.files || []);
+    } catch (e) {
+      console.error("[files] fetch failed:", e);
     }
-  );
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    alert(err.error || "Export failed");
-    return;
   }
 
-  const blob = await res.blob();
-  const url = URL.createObjectURL(blob);
+  async function uploadFile(file: File) {
+    if (projectFiles.length >= MAX_FILES) {
+      alert(`Maximum ${MAX_FILES} files allowed. Remove a file first.`);
+      return;
+    }
 
-  const a = document.createElement("a");
-  a.href = url;
-  a.download =
-    format === "pdf"
-      ? "chat-export.pdf"
-      : format === "docx"
-        ? "chat-export.docx"
-        : "chat-export.txt";
+    const token = getToken();
+    if (!token) return;
 
-  a.click();
-  URL.revokeObjectURL(url);
+    setIsUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
 
-  setExportOpen(false);
-}
+      const res = await fetch(`/api/projects/${projectId}/files`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.error || "Upload failed.");
+        return;
+      }
+      await fetchProjectFiles();
+    } catch (e) {
+      console.error("[files] upload failed:", e);
+      alert("Upload failed.");
+    } finally {
+      setIsUploading(false);
+      // Reset input so same file can be re-selected
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  async function deleteProjectFile(fileId: string) {
+    const token = getToken();
+    if (!token) return;
+    if (!confirm("Remove this file from the project?")) return;
+    try {
+      const res = await fetch(`/api/projects/${projectId}/files/${fileId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) { alert("Failed to delete file."); return; }
+      await fetchProjectFiles();
+    } catch (e) {
+      console.error("[files] delete failed:", e);
+    }
+  }
+
+  function handleFileInputChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) uploadFile(file);
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setIsDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) uploadFile(file);
+  }
+
+  // ─── Export ───────────────────────────────────────────────────────────────
+
+  async function exportChat(format: "pdf" | "txt" | "docx") {
+    if (!activeChatId) return;
+    if (selectMode && selectedMessageIds.length === 0) {
+      alert("Select at least one message to export.");
+      return;
+    }
+
+    const token = getToken();
+    if (!token) return;
+
+    const res = await fetch(
+      `/api/projects/${projectId}/chats/${activeChatId}/export`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          includeQuestions: exportIncludeQuestions,
+          format,
+          messageIds: selectMode && selectedMessageIds.length > 0 ? selectedMessageIds : null,
+        }),
+      }
+    );
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      alert(err.error || "Export failed");
+      return;
+    }
+
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = format === "pdf" ? "chat-export.pdf" : format === "docx" ? "chat-export.docx" : "chat-export.txt";
+    a.click();
+    URL.revokeObjectURL(url);
+    setExportOpen(false);
+  }
 
   async function copyToClipboard(text: string) {
     try { await navigator.clipboard.writeText(text); }
@@ -1014,6 +1114,7 @@ const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
       setProject(data.project);
       await fetchRoleAssignments();
       await fetchUsage();
+      await fetchProjectFiles();
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   }
@@ -1215,9 +1316,7 @@ const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
     return (
       <div className="cw-loading">
         <style>{themeStyles}</style>
-        <div className="cw-loading-dot" />
-        <div className="cw-loading-dot" />
-        <div className="cw-loading-dot" />
+        <div className="cw-loading-dot" /><div className="cw-loading-dot" /><div className="cw-loading-dot" />
         <span style={{ marginLeft: 8 }}>Loading project...</span>
       </div>
     );
@@ -1232,11 +1331,8 @@ const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
     <div className={`cw-root ${themeClass}`}>
       <style>{themeStyles}</style>
 
-      {/* Ambient background */}
       <div className="cw-ambient">
-        <div className="cw-orb cw-orb1" />
-        <div className="cw-orb cw-orb2" />
-        <div className="cw-orb cw-orb3" />
+        <div className="cw-orb cw-orb1" /><div className="cw-orb cw-orb2" /><div className="cw-orb cw-orb3" />
       </div>
 
       {/* ── NAVBAR ── */}
@@ -1248,45 +1344,20 @@ const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
             <div className="cw-brand-sub">Multi-AI workspace</div>
           </div>
         </div>
-
         <div style={{ display: "flex", alignItems: "center", gap: 7, zIndex: 1 }}>
+          <button onClick={async () => { setMembersOpen(true); await fetchMembers(); }} className="cw-nav-btn">
+            <UserPlus size={13} /><span>{canManageProject ? "Invite" : "Members"}</span>
+          </button>
+          <button onClick={() => setExportOpen(true)} className="cw-nav-btn">Export</button>
           <button
-            onClick={async () => { setMembersOpen(true); await fetchMembers(); }}
-            className="cw-nav-btn"
+            onClick={() => { setSelectMode((prev) => !prev); setSelectedMessageIds([]); }}
+            className="rounded-lg border border-neutral-800 px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-900"
           >
-            <UserPlus size={13} />
-            <span>{canManageProject ? "Invite" : "Members"}</span>
+            {selectMode ? "Cancel Select" : "Select"}
           </button>
-          <button
-            onClick={() => setExportOpen(true)}
-            className="cw-nav-btn"> 
-            Export
-          </button>
-          <button
-  onClick={() => {
-    setSelectMode((prev) => !prev);
-    setSelectedMessageIds([]);
-  }}
-  className="rounded-lg border border-neutral-800 px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-900"
->
-  {selectMode ? "Cancel Select" : "Select"}
-</button>
-          <button onClick={() => setUsageOpen(true)} className="cw-nav-btn">
-            <BarChart3 size={13} />
-            <span>Usage</span>
-          </button>
-          <button onClick={() => router.push("/dashboard")} className="cw-nav-btn">
-            <LayoutDashboard size={13} />
-            <span>Dashboard</span>
-          </button>
-
-          {/* Theme toggle */}
-          <button
-            className="cw-theme-toggle"
-            onClick={() => setIsDark(!isDark)}
-            title="Toggle theme"
-            style={{ position: "relative" }}
-          >
+          <button onClick={() => setUsageOpen(true)} className="cw-nav-btn"><BarChart3 size={13} /><span>Usage</span></button>
+          <button onClick={() => router.push("/dashboard")} className="cw-nav-btn"><LayoutDashboard size={13} /><span>Dashboard</span></button>
+          <button className="cw-theme-toggle" onClick={() => setIsDark(!isDark)} title="Toggle theme" style={{ position: "relative" }}>
             <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 5px", pointerEvents: "none" }}>
               <Sun size={11} style={{ color: isDark ? "rgba(134,134,172,0.4)" : "#f59e0b", transition: "color 0.3s" }} />
               <Moon size={11} style={{ color: isDark ? "#9292b8" : "rgba(80,80,129,0.35)", transition: "color 0.3s" }} />
@@ -1300,19 +1371,12 @@ const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
 
         {/* Icon sidebar */}
         <aside className="cw-icon-sidebar">
-          <button
-            onClick={() => setSidebarOpen((v) => !v)}
-            className={`cw-icon-btn ${sidebarOpen ? "active" : ""}`}
-          >
+          <button onClick={() => setSidebarOpen((v) => !v)} className={`cw-icon-btn ${sidebarOpen ? "active" : ""}`}>
             {sidebarOpen ? <X size={17} /> : <Menu size={17} />}
           </button>
           <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-            <button onClick={() => router.push("/settings")} className="cw-icon-btn" title="Profile">
-              <User size={17} />
-            </button>
-            <button onClick={() => router.push("/settings")} className="cw-icon-btn" title="Settings">
-              <Settings size={17} />
-            </button>
+            <button onClick={() => router.push("/settings")} className="cw-icon-btn" title="Profile"><User size={17} /></button>
+            <button onClick={() => router.push("/settings")} className="cw-icon-btn" title="Settings"><Settings size={17} /></button>
           </div>
         </aside>
 
@@ -1322,32 +1386,29 @@ const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
             <div className="cw-proj-name">{project?.name}</div>
             <div className="cw-proj-desc">{project?.description || "No description"}</div>
           </div>
-
           <div>
             <div className="cw-sec-label" style={{ marginBottom: 8 }}>Workspace</div>
-            <button onClick={createNewChat} className="cw-side-btn primary" style={{ marginBottom: 4 }}>
-              <Plus size={14} /> New Chat
+            <button onClick={createNewChat} className="cw-side-btn primary" style={{ marginBottom: 4 }}><Plus size={14} /> New Chat</button>
+            <button onClick={() => router.push("/dashboard")} className="cw-side-btn"><LayoutDashboard size={14} /> New Project</button>
+            <button onClick={() => setChatListOpen(true)} className="cw-side-btn"><Menu size={14} /> Chat List</button>
+            <button
+              onClick={() => { setFilesOpen(true); fetchProjectFiles(); }}
+              className="cw-side-btn"
+            >
+              <Paperclip size={14} />
+              Project Files
+              {projectFiles.length > 0 && (
+                <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--accent)", background: "var(--ag)", border: "1px solid rgba(77,159,255,0.28)", borderRadius: 99, padding: "1px 7px" }}>
+                  {projectFiles.length}/{MAX_FILES}
+                </span>
+              )}
             </button>
-            <button onClick={() => router.push("/dashboard")} className="cw-side-btn">
-              <LayoutDashboard size={14} /> New Project
-            </button>
-            <button onClick={() => setChatListOpen(true)} className="cw-side-btn">
-              <Menu size={14} /> Chat List
-            </button>
-            <button onClick={deleteChat} className="cw-side-btn danger">
-              <X size={14} /> Delete Chat
-            </button>
-            <button onClick={() => router.push("/api-manager")} className="cw-side-btn">
-              <Zap size={14} /> API Manager
-            </button>
+            <button onClick={deleteChat} className="cw-side-btn danger"><X size={14} /> Delete Chat</button>
+            <button onClick={() => router.push("/api-manager")} className="cw-side-btn"><Zap size={14} /> API Manager</button>
             {canEditProject && (
-              <button onClick={() => setShowSettings(true)} className="cw-side-btn">
-                <Settings size={14} /> Project Settings
-              </button>
+              <button onClick={() => setShowSettings(true)} className="cw-side-btn"><Settings size={14} /> Project Settings</button>
             )}
           </div>
-
-          {/* Token card */}
           <div className="cw-token-card" style={{ marginTop: "auto" }}>
             <div className="cw-token-label">Token Usage</div>
             <div className="cw-token-value">{(usage?.totalTokensToday ?? 0).toLocaleString()}</div>
@@ -1365,8 +1426,6 @@ const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
 
         {/* ── MAIN CHAT ── */}
         <section className="cw-chat-main">
-
-          {/* Chat header */}
           <div className="cw-chat-header">
             <div>
               {editingChatTitle ? (
@@ -1374,31 +1433,18 @@ const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
                   value={chatTitleDraft}
                   onChange={(e) => setChatTitleDraft(e.target.value)}
                   onBlur={() => updateChatTitle()}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") updateChatTitle();
-                    if (e.key === "Escape") setEditingChatTitle(false);
-                  }}
-                  autoFocus
-                  className="cw-chat-title-input"
+                  onKeyDown={(e) => { if (e.key === "Enter") updateChatTitle(); if (e.key === "Escape") setEditingChatTitle(false); }}
+                  autoFocus className="cw-chat-title-input"
                 />
               ) : (
-                <button
-                  type="button"
-                  onClick={() => activeChatIdRef.current && setEditingChatTitle(true)}
-                  className={`cw-chat-title-btn ${activeChatIdRef.current ? "" : "inactive"}`}
-                >
+                <button type="button" onClick={() => activeChatIdRef.current && setEditingChatTitle(true)} className={`cw-chat-title-btn ${activeChatIdRef.current ? "" : "inactive"}`}>
                   {activeChat?.title || project?.name || "New Chat"}
                 </button>
               )}
-              {activeChatId && !editingChatTitle && (
-                <div className="cw-title-hint">Click title to rename</div>
-              )}
+              {activeChatId && !editingChatTitle && <div className="cw-title-hint">Click title to rename</div>}
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span className="cw-vis-chip">
-                <Bot size={10} />
-                {activeChat?.visibility || "public"}
-              </span>
+              <span className="cw-vis-chip"><Bot size={10} />{activeChat?.visibility || "public"}</span>
             </div>
           </div>
 
@@ -1406,13 +1452,9 @@ const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
           <div className="cw-messages">
             {messageGroups.length === 0 ? (
               <div className="cw-empty">
-                <div className="cw-empty-icon">
-                  <Bot size={24} color="#fff" />
-                </div>
+                <div className="cw-empty-icon"><Bot size={24} color="#fff" /></div>
                 <div className="cw-empty-title">Select a model and start building</div>
-                <div className="cw-empty-sub">
-                  Choose a role below — Reasoning, Research, Execution, or Reviewing — then send your first message.
-                </div>
+                <div className="cw-empty-sub">Choose a role below — Reasoning, Research, Execution, or Reviewing — then send your first message.</div>
               </div>
             ) : (
               <div style={{ maxWidth: 880, margin: "0 auto", width: "100%" }}>
@@ -1424,81 +1466,40 @@ const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
                   return (
                     <div key={group.groupId} className="cw-msg-group" style={{ marginBottom: 14 }}>
                       <div className={`cw-bubble ${isUser ? "cw-bubble-user" : "cw-bubble-ai"}`}>
-                        
                         {selectMode && isUuid(message.id) && (
-  <input
-    type="checkbox"
-    checked={selectedMessageIds.includes(message.id)}
-    onChange={() => toggleSelectedMessage(message.id)}
-    className="mt-2"
-  />
-)}
+                          <input type="checkbox" checked={selectedMessageIds.includes(message.id)} onChange={() => toggleSelectedMessage(message.id)} className="mt-2" />
+                        )}
                         {editingMessageId === message.id ? (
                           <div>
-                            <textarea
-                              value={editingDraft}
-                              onChange={(e) => setEditingDraft(e.target.value)}
-                              className="cw-edit-area"
-                            />
+                            <textarea value={editingDraft} onChange={(e) => setEditingDraft(e.target.value)} className="cw-edit-area" />
                             <div className="cw-edit-actions">
-                              <button type="button" onClick={() => saveEditedMessage(message.id)} className="cw-btn-save" style={{ padding: "5px 14px", fontSize: 12 }}>
-                                Save
-                              </button>
-                              <button type="button" onClick={() => { setEditingMessageId(null); setEditingDraft(""); }} className="cw-btn-cancel" style={{ padding: "5px 12px", fontSize: 12 }}>
-                                Cancel
-                              </button>
+                              <button type="button" onClick={() => saveEditedMessage(message.id)} className="cw-btn-save" style={{ padding: "5px 14px", fontSize: 12 }}>Save</button>
+                              <button type="button" onClick={() => { setEditingMessageId(null); setEditingDraft(""); }} className="cw-btn-cancel" style={{ padding: "5px 12px", fontSize: 12 }}>Cancel</button>
                             </div>
                           </div>
                         ) : (
-                          
                           <RichMessage content={message.content} />
                         )}
-
-                        {/* Actions */}
                         <div className="cw-msg-actions">
-                          <button type="button" onClick={() => copyToClipboard(message.content)} className="cw-action-btn">
-                            Copy
-                          </button>
-                          
+                          <button type="button" onClick={() => copyToClipboard(message.content)} className="cw-action-btn">Copy</button>
                           {message.role === "assistant" && isUuid(message.id) && (
-                            <button type="button" onClick={() => retryAssistantMessage(message.id)} className="cw-action-btn">
-                              Retry
-                            </button>
+                            <button type="button" onClick={() => retryAssistantMessage(message.id)} className="cw-action-btn">Retry</button>
                           )}
                           {canSendMessages && message.role === "user" && (
-                            <button type="button" onClick={() => { setEditingMessageId(message.id); setEditingDraft(message.content); }} className="cw-action-btn">
-                              Edit
-                            </button>
+                            <button type="button" onClick={() => { setEditingMessageId(message.id); setEditingDraft(message.content); }} className="cw-action-btn">Edit</button>
                           )}
                         </div>
                       </div>
-
-                      {/* Version nav */}
                       {group.versions.length > 1 && (
                         <div className="cw-ver-nav" style={{ paddingLeft: isUser ? 0 : 4, justifyContent: isUser ? "flex-end" : "flex-start" }}>
-                          <button
-                            type="button"
-                            className="cw-ver-btn"
-                            onClick={() => setSelectedVersionByGroup((prev) => ({ ...prev, [group.groupId]: Math.max(selectedIndex - 1, 0) }))}
-                            disabled={selectedIndex === 0}
-                          >‹</button>
+                          <button type="button" className="cw-ver-btn" onClick={() => setSelectedVersionByGroup((prev) => ({ ...prev, [group.groupId]: Math.max(selectedIndex - 1, 0) }))} disabled={selectedIndex === 0}>‹</button>
                           <span>{selectedIndex + 1}/{group.versions.length}</span>
-                          <button
-                            type="button"
-                            className="cw-ver-btn"
-                            onClick={() => setSelectedVersionByGroup((prev) => ({ ...prev, [group.groupId]: Math.min(selectedIndex + 1, group.versions.length - 1) }))}
-                            disabled={selectedIndex === group.versions.length - 1}
-                          >›</button>
+                          <button type="button" className="cw-ver-btn" onClick={() => setSelectedVersionByGroup((prev) => ({ ...prev, [group.groupId]: Math.min(selectedIndex + 1, group.versions.length - 1) }))} disabled={selectedIndex === group.versions.length - 1}>›</button>
                         </div>
                       )}
-
-                      {/* Model chip */}
                       {message.model && (
                         <div style={{ paddingLeft: isUser ? 0 : 4, display: "flex", justifyContent: isUser ? "flex-end" : "flex-start" }}>
-                          <span className="cw-model-chip">
-                            <Bot size={9} />
-                            {message.model}
-                          </span>
+                          <span className="cw-model-chip"><Bot size={9} />{message.model}</span>
                         </div>
                       )}
                     </div>
@@ -1511,22 +1512,66 @@ const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
           {/* ── INPUT FORM ── */}
           <form onSubmit={handleSendMessage} className="cw-input-area">
             <div className="cw-input-max">
+
+              {/* File chips strip — shown when files are attached */}
+              
+
               <div className="cw-input-shell">
-                <button type="button" className="cw-attach-btn">
-                  <Plus size={15} />
+
+                {/* ── Attach button (paperclip icon) ── */}
+                <button
+                  type="button"
+                  className={`cw-attach-btn ${projectFiles.length > 0 ? "has-files" : ""} ${isUploading ? "uploading" : ""}`}
+                  onClick={() => {
+                    if (projectFiles.length >= MAX_FILES) {
+                      setFilesOpen(true);
+                      fetchProjectFiles();
+                    } else {
+                      fileInputRef.current?.click();
+                    }
+                  }}
+                  title={
+                    projectFiles.length >= MAX_FILES
+                      ? `${MAX_FILES} files attached — click to manage`
+                      : isUploading
+                      ? "Uploading…"
+                      : "Attach file to project context"
+                  }
+                  disabled={isUploading}
+                >
+                  {isUploading ? (
+                    <div style={{ width: 13, height: 13, border: "2px solid var(--b-mid)", borderTopColor: "var(--accent)", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} />
+                  ) : (
+                    <Paperclip size={14} />
+                  )}
+                  {projectFiles.length > 0 && (
+                    <span className="cw-attach-count">{projectFiles.length}</span>
+                  )}
                 </button>
+
+                {/* Hidden file input */}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept={ACCEPTED_FILE_TYPES}
+                  style={{ display: "none" }}
+                  onChange={handleFileInputChange}
+                />
+
                 <input
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   disabled={!canSendMessages}
-                  placeholder={canSendMessages ? "Message CoWork.ai..." : "Viewer access: messaging is disabled"}
+                  placeholder={
+                    projectFiles.length > 0
+                      ? `Message CoWork.ai… (${projectFiles.length} file${projectFiles.length > 1 ? "s" : ""} in context)`
+                      : canSendMessages
+                      ? "Message CoWork.ai…"
+                      : "Viewer access: messaging is disabled"
+                  }
                   className="cw-text-input"
                 />
-                <button
-                  type="submit"
-                  disabled={isStreaming || !input.trim() || !canSendMessages}
-                  className="cw-send-btn"
-                >
+                <button type="submit" disabled={isStreaming || !input.trim() || !canSendMessages} className="cw-send-btn">
                   <Send size={15} />
                 </button>
               </div>
@@ -1534,21 +1579,14 @@ const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
               {/* Mode toggle */}
               <div className="cw-mode-row">
                 <div className="cw-mode-tabs">
-                  <button type="button" onClick={() => setMessageMode("single")} className={`cw-mode-tab ${messageMode === "single" ? "active" : ""}`}>
-                    Single Model
-                  </button>
-                  <button type="button" onClick={() => setMessageMode("team")} className={`cw-mode-tab ${messageMode === "team" ? "active" : ""}`}>
-                    Team Mode Pro
-                  </button>
+                  <button type="button" onClick={() => setMessageMode("single")} className={`cw-mode-tab ${messageMode === "single" ? "active" : ""}`}>Single Model</button>
+                  <button type="button" onClick={() => setMessageMode("team")} className={`cw-mode-tab ${messageMode === "team" ? "active" : ""}`}>Team Mode Pro</button>
                 </div>
                 <span className="cw-mode-hint">reasoning → execution → review</span>
               </div>
 
-              {/* No API keys warning */}
               {usage?.connectedProviders?.length === 0 && (
-                <div className="cw-warn">
-                  No API keys connected. Go to API Manager to connect at least one model provider.
-                </div>
+                <div className="cw-warn">No API keys connected. Go to API Manager to connect at least one model provider.</div>
               )}
 
               {/* Role selector */}
@@ -1557,51 +1595,23 @@ const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
                   const active = selectedRole === role.value;
                   const providerLabel = getProviderLabel(roleProviders[role.value]);
                   return (
-                    <div
-                      key={role.value}
-                      className={`cw-role-card ${active ? "active" : ""}`}
-                      style={active ? { borderColor: roleAccent[role.value], boxShadow: `0 0 14px ${roleAccent[role.value]}30` } : {}}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => { if (!canEditProject) return; setSelectedRole(role.value); }}
-                        className="cw-role-inner"
-                      >
+                    <div key={role.value} className={`cw-role-card ${active ? "active" : ""}`} style={active ? { borderColor: roleAccent[role.value], boxShadow: `0 0 14px ${roleAccent[role.value]}30` } : {}}>
+                      <button type="button" onClick={() => { if (!canEditProject) return; setSelectedRole(role.value); }} className="cw-role-inner">
                         <span className="cw-role-icon" style={active ? { color: roleAccent[role.value] } : {}}>{role.icon}</span>
                         <span className="cw-role-name" style={active ? { color: roleAccent[role.value] } : {}}>{providerLabel}</span>
                       </button>
                       <div className="cw-role-chevron">
                         <ChevronDown size={11} style={{ color: active ? roleAccent[role.value] : "var(--tm)" }} />
-                        <select
-                          value={roleProviders[role.value]}
-                          onChange={(e) => updateRoleProvider(role.value, e.target.value)}
-                          disabled={connectedOptions.length === 0 || !canEditProject}
-                          className="cw-role-select"
-                          title={`Change ${role.value} model`}
-                        >
-                          {connectedOptions.map((p) => (
-                            <option key={p.value} value={p.value}>{p.label}</option>
-                          ))}
+                        <select value={roleProviders[role.value]} onChange={(e) => updateRoleProvider(role.value, e.target.value)} disabled={connectedOptions.length === 0 || !canEditProject} className="cw-role-select" title={`Change ${role.value} model`}>
+                          {connectedOptions.map((p) => (<option key={p.value} value={p.value}>{p.label}</option>))}
                         </select>
                       </div>
                     </div>
                   );
                 })}
-
-                {/* Auto button */}
-                <div
-                  className={`cw-role-card ${selectedRole === "auto" ? "active" : ""}`}
-                  style={selectedRole === "auto" ? { borderColor: roleAccent.auto, boxShadow: `0 0 14px ${roleAccent.auto}30` } : {}}
-                >
-                  <button
-                    type="button"
-                    onClick={() => { if (!canEditProject) return; setSelectedRole("auto"); }}
-                    className="cw-role-inner"
-                    style={{ justifyContent: "center" }}
-                  >
-                    <span className="cw-role-icon" style={selectedRole === "auto" ? { color: roleAccent.auto } : {}}>
-                      <Bot size={14} />
-                    </span>
+                <div className={`cw-role-card ${selectedRole === "auto" ? "active" : ""}`} style={selectedRole === "auto" ? { borderColor: roleAccent.auto, boxShadow: `0 0 14px ${roleAccent.auto}30` } : {}}>
+                  <button type="button" onClick={() => { if (!canEditProject) return; setSelectedRole("auto"); }} className="cw-role-inner" style={{ justifyContent: "center" }}>
+                    <span className="cw-role-icon" style={selectedRole === "auto" ? { color: roleAccent.auto } : {}}><Bot size={14} /></span>
                     <span className="cw-role-name" style={selectedRole === "auto" ? { color: roleAccent.auto } : {}}>Auto</span>
                   </button>
                 </div>
@@ -1611,48 +1621,96 @@ const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
         </section>
       </div>
 
+      {/* ── FILES MODAL ── */}
+      {filesOpen && (
+        <div className="cw-backdrop" onClick={(e) => e.target === e.currentTarget && setFilesOpen(false)}>
+          <div className="cw-modal">
+            <div className="cw-modal-header">
+              <div>
+                <div className="cw-modal-title">Project Files</div>
+                <div className="cw-modal-sub">
+                  {projectFiles.length}/{MAX_FILES} files · Added to AI context automatically
+                </div>
+              </div>
+              <button className="cw-modal-close" onClick={() => setFilesOpen(false)}><X size={14} /></button>
+            </div>
+
+            {/* Drop zone */}
+            {projectFiles.length < MAX_FILES && (
+              <div
+                className={`cw-files-drop ${isDragOver ? "drag-over" : ""}`}
+                onClick={() => fileInputRef.current?.click()}
+                onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+                onDragLeave={() => setIsDragOver(false)}
+                onDrop={handleDrop}
+              >
+                <div className="cw-files-drop-icon" style={{ display: "flex", justifyContent: "center" }}>
+                  <Paperclip size={22} />
+                </div>
+                <div className="cw-files-drop-text">
+                  {isUploading ? "Uploading…" : "Click or drag & drop a file"}
+                </div>
+                <div className="cw-files-drop-hint">
+                  Supported: .txt, .md, .pdf, .csv, .json, .js, .ts, .tsx, .py, .html, .css, .xml, .yaml
+                </div>
+              </div>
+            )}
+
+            {projectFiles.length === 0 ? (
+              <p style={{ fontSize: 12.5, color: "var(--tm)", textAlign: "center", padding: "12px 0" }}>No files yet. Upload one above.</p>
+            ) : (
+              projectFiles.map((f) => (
+                <div key={f.id} className="cw-file-list-item">
+                  <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
+                    <FileText size={16} style={{ color: "var(--accent)", flexShrink: 0 }} />
+                    <div style={{ minWidth: 0 }}>
+                      <div className="cw-file-list-name">{f.file_name}</div>
+                      <div className="cw-file-list-meta">{f.file_type} · {new Date(f.created_at).toLocaleDateString()}</div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => deleteProjectFile(f.id)}
+                    className="cw-btn-remove"
+                    style={{ display: "flex", alignItems: "center", gap: 4 }}
+                  >
+                    <Trash2 size={11} /> Remove
+                  </button>
+                </div>
+              ))
+            )}
+
+            {projectFiles.length >= MAX_FILES && (
+              <div className="cw-warn" style={{ marginTop: 8 }}>
+                Max {MAX_FILES} files reached. Remove a file to upload a new one.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ── CHAT LIST MODAL ── */}
       {chatListOpen && (
         <div className="cw-backdrop" onClick={(e) => e.target === e.currentTarget && setChatListOpen(false)}>
           <div className="cw-modal">
             <div className="cw-modal-header">
-              <div>
-                <div className="cw-modal-title">Chats</div>
-                <div className="cw-modal-sub">Select or manage your project conversations</div>
-              </div>
-              <button className="cw-modal-close" onClick={() => setChatListOpen(false)}>
-                <X size={14} />
-              </button>
+              <div><div className="cw-modal-title">Chats</div><div className="cw-modal-sub">Select or manage your project conversations</div></div>
+              <button className="cw-modal-close" onClick={() => setChatListOpen(false)}><X size={14} /></button>
             </div>
-
             {chats.length === 0 ? (
               <p style={{ fontSize: 13, color: "var(--tm)" }}>No chats yet. Create one to get started.</p>
             ) : (
               chats.map((chat) => (
-                <div
-                  key={chat.id}
-                  className={`cw-chat-item ${activeChatId === chat.id ? "active" : ""}`}
-                  onClick={() => { setActiveChatId(chat.id); setChatListOpen(false); }}
-                >
+                <div key={chat.id} className={`cw-chat-item ${activeChatId === chat.id ? "active" : ""}`} onClick={() => { setActiveChatId(chat.id); setChatListOpen(false); }}>
                   <div>
                     <div className="cw-chat-item-title">{chat.title}</div>
                     <div className="cw-chat-item-meta">{new Date(chat.updated_at).toLocaleString()}</div>
                     {chat.creator_email && (
-                      <div className="cw-creator-info">
-                        {chat.creator_email}
-                        {chat.creator_role && (
-                          <span className="cw-creator-badge">{chat.creator_role}</span>
-                        )}
-                      </div>
+                      <div className="cw-creator-info">{chat.creator_email}{chat.creator_role && <span className="cw-creator-badge">{chat.creator_role}</span>}</div>
                     )}
                   </div>
                   {project?.my_role === "owner" ? (
-                    <select
-                      value={chat.visibility}
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={(e) => updateChatVisibility(chat.id, e.target.value as "public" | "private")}
-                      className="cw-vis-select"
-                    >
+                    <select value={chat.visibility} onClick={(e) => e.stopPropagation()} onChange={(e) => updateChatVisibility(chat.id, e.target.value as "public" | "private")} className="cw-vis-select">
                       <option value="public">Public</option>
                       <option value="private">Private</option>
                     </select>
@@ -1662,11 +1720,8 @@ const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
                 </div>
               ))
             )}
-
             <div style={{ marginTop: 14 }}>
-              <button className="cw-btn-save" style={{ width: "100%" }} onClick={() => { createNewChat(); setChatListOpen(false); }}>
-                + New Chat
-              </button>
+              <button className="cw-btn-save" style={{ width: "100%" }} onClick={() => { createNewChat(); setChatListOpen(false); }}>+ New Chat</button>
             </div>
           </div>
         </div>
@@ -1677,22 +1732,13 @@ const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
         <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(4,4,18,0.5)", backdropFilter: "blur(6px)" }}>
           <aside className="cw-usage-panel">
             <div className="cw-modal-header">
-              <div>
-                <div className="cw-modal-title">Usage Analysis</div>
-                <div className="cw-modal-sub">Token usage across connected models</div>
-              </div>
-              <button className="cw-modal-close" onClick={() => setUsageOpen(false)}>
-                <X size={14} />
-              </button>
+              <div><div className="cw-modal-title">Usage Analysis</div><div className="cw-modal-sub">Token usage across connected models</div></div>
+              <button className="cw-modal-close" onClick={() => setUsageOpen(false)}><X size={14} /></button>
             </div>
-
             <div className="cw-usage-stat">
               <div className="cw-usage-val">{(usage?.totalTokensToday ?? 0).toLocaleString()}</div>
-              <div className="cw-usage-meta">
-                Cost today: ${usage?.totalCostToday?.toFixed(4) || "0.0000"} · Most used: {usage?.mostUsedModel || "None"}
-              </div>
+              <div className="cw-usage-meta">Cost today: ${usage?.totalCostToday?.toFixed(4) || "0.0000"} · Most used: {usage?.mostUsedModel || "None"}</div>
             </div>
-
             <div className="cw-modal-label" style={{ marginTop: 14 }}>Connected Model Limits</div>
             {!usage?.providerUsage?.length ? (
               <p style={{ fontSize: 12.5, color: "#fbbf24", marginBottom: 12 }}>No connected API keys. Connect providers in API Manager.</p>
@@ -1701,21 +1747,13 @@ const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
                 const pct = item.limit > 0 ? Math.min((item.usedToday / item.limit) * 100, 100) : 0;
                 return (
                   <div key={item.provider} className="cw-prog-row">
-                    <div className="cw-prog-header">
-                      <span style={{ textTransform: "capitalize" }}>{item.provider}</span>
-                      <span>{item.usedToday} / {item.limit}</span>
-                    </div>
-                    <div className="cw-prog-bar">
-                      <div className="cw-prog-fill" style={{ width: `${pct}%` }} />
-                    </div>
-                    <div style={{ fontSize: 10.5, color: "var(--tm)", marginTop: 3 }}>
-                      Remaining: {item.remaining} · ${item.costToday?.toFixed(4)}
-                    </div>
+                    <div className="cw-prog-header"><span style={{ textTransform: "capitalize" }}>{item.provider}</span><span>{item.usedToday} / {item.limit}</span></div>
+                    <div className="cw-prog-bar"><div className="cw-prog-fill" style={{ width: `${pct}%` }} /></div>
+                    <div style={{ fontSize: 10.5, color: "var(--tm)", marginTop: 3 }}>Remaining: {item.remaining} · ${item.costToday?.toFixed(4)}</div>
                   </div>
                 );
               })
             )}
-
             <div className="cw-modal-label" style={{ marginTop: 14 }}>Usage by Model Today</div>
             {!usage?.usageByModel?.length ? (
               <p style={{ fontSize: 12.5, color: "var(--tm)" }}>No usage yet.</p>
@@ -1727,7 +1765,6 @@ const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
                 </div>
               ))
             )}
-
             <div className="cw-modal-label" style={{ marginTop: 14 }}>Usage Trend</div>
             {usage?.usageByDay?.length ? (
               <div style={{ width: "100%", height: 240 }}>
@@ -1741,10 +1778,7 @@ const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
                   </LineChart>
                 </ResponsiveContainer>
               </div>
-            ) : (
-              <p style={{ fontSize: 12.5, color: "var(--tm)" }}>No data yet</p>
-            )}
-
+            ) : <p style={{ fontSize: 12.5, color: "var(--tm)" }}>No data yet</p>}
             <div className="cw-modal-label" style={{ marginTop: 14 }}>Usage by Provider</div>
             {usage?.providerUsage?.length ? (
               <div style={{ width: "100%", height: 220 }}>
@@ -1758,149 +1792,62 @@ const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-            ) : (
-              <p style={{ fontSize: 12.5, color: "var(--tm)" }}>No provider usage yet</p>
-            )}
+            ) : <p style={{ fontSize: 12.5, color: "var(--tm)" }}>No provider usage yet</p>}
           </aside>
         </div>
       )}
 
+      {/* ── EXPORT MODAL ── */}
       {exportOpen && (
-  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
-    <div className="w-full max-w-md rounded-2xl border border-neutral-800 bg-neutral-950 p-6 text-white shadow-2xl">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">Export Chat</h2>
-
-        <button
-          onClick={() => setExportOpen(false)}
-          className="rounded-lg border border-neutral-800 px-3 py-1.5 text-sm hover:bg-neutral-900"
-        >
-          Close
-        </button>
-      </div>
-
-      {selectMode && (
-  <p className="mt-3 text-xs text-neutral-500">
-    {selectedMessageIds.length} selected message(s) will be exported.
-  </p>
-  
-)}
-
-      <div className="mt-5 space-y-3">
-        <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-neutral-800 bg-black p-4">
-          <input
-            type="radio"
-            checked={exportIncludeQuestions}
-            onChange={() => setExportIncludeQuestions(true)}
-          />
-          <div>
-            <p className="text-sm font-medium">Export with questions</p>
-            <p className="text-xs text-neutral-500">
-              Includes user prompts and assistant responses.
-            </p>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+          <div className="w-full max-w-md rounded-2xl border border-neutral-800 bg-neutral-950 p-6 text-white shadow-2xl">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Export Chat</h2>
+              <button onClick={() => setExportOpen(false)} className="rounded-lg border border-neutral-800 px-3 py-1.5 text-sm hover:bg-neutral-900">Close</button>
+            </div>
+            {selectMode && <p className="mt-3 text-xs text-neutral-500">{selectedMessageIds.length} selected message(s) will be exported.</p>}
+            <div className="mt-5 space-y-3">
+              <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-neutral-800 bg-black p-4">
+                <input type="radio" checked={exportIncludeQuestions} onChange={() => setExportIncludeQuestions(true)} />
+                <div><p className="text-sm font-medium">Export with questions</p><p className="text-xs text-neutral-500">Includes user prompts and assistant responses.</p></div>
+              </label>
+              <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-neutral-800 bg-black p-4">
+                <input type="radio" checked={!exportIncludeQuestions} onChange={() => setExportIncludeQuestions(false)} />
+                <div><p className="text-sm font-medium">Export responses only</p><p className="text-xs text-neutral-500">Includes only assistant responses.</p></div>
+              </label>
+            </div>
+            <div className="mt-5 flex gap-2">
+              <button onClick={() => exportChat("pdf")} className="w-full rounded-xl bg-white px-4 py-2.5 text-sm text-black">Download PDF</button>
+              <button onClick={() => exportChat("txt")} className="w-full rounded-xl border border-neutral-700 px-4 py-2.5 text-sm text-neutral-300">TXT</button>
+            </div>
           </div>
-        </label>
-
-        <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-neutral-800 bg-black p-4">
-          <input
-            type="radio"
-            checked={!exportIncludeQuestions}
-            onChange={() => setExportIncludeQuestions(false)}
-          />
-          <div>
-            <p className="text-sm font-medium">Export responses only</p>
-            <p className="text-xs text-neutral-500">
-              Includes only assistant responses.
-            </p>
-          </div>
-        </label>
-      </div>
-
-      <div className="mt-5 flex gap-2">
-  <button
-    onClick={() => exportChat("pdf")}
-    className="w-full rounded-xl bg-white px-4 py-2.5 text-sm text-black"
-  >
-    Download PDF
-  </button>
-
-  <button
-    onClick={() => exportChat("txt")}
-    className="w-full rounded-xl border border-neutral-700 px-4 py-2.5 text-sm text-neutral-300"
-  >
-    TXT
-  </button>
-</div>
-    </div>
-  </div>
-)}
+        </div>
+      )}
 
       {/* ── PROJECT SETTINGS MODAL ── */}
       {showSettings && (
         <div className="cw-backdrop" onClick={(e) => e.target === e.currentTarget && setShowSettings(false)}>
           <div className="cw-modal cw-modal-xl">
             <div className="cw-modal-header">
-              <div>
-                <div className="cw-modal-title">Project Settings</div>
-                <div className="cw-modal-sub">Configure your project workspace</div>
-              </div>
-              <button className="cw-modal-close" onClick={() => setShowSettings(false)}>
-                <X size={14} />
-              </button>
+              <div><div className="cw-modal-title">Project Settings</div><div className="cw-modal-sub">Configure your project workspace</div></div>
+              <button className="cw-modal-close" onClick={() => setShowSettings(false)}><X size={14} /></button>
             </div>
-
             <div className="cw-modal-section">
               <div className="cw-modal-label">Project Name</div>
-              <input
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                className="cw-modal-input"
-                placeholder="Project name"
-              />
+              <input value={editName} onChange={(e) => setEditName(e.target.value)} className="cw-modal-input" placeholder="Project name" />
               <div className="cw-modal-label">Description</div>
-              <textarea
-                value={editDescription}
-                onChange={(e) => setEditDescription(e.target.value)}
-                className="cw-modal-textarea"
-                rows={2}
-                placeholder="Description"
-              />
+              <textarea value={editDescription} onChange={(e) => setEditDescription(e.target.value)} className="cw-modal-textarea" rows={2} placeholder="Description" />
             </div>
-
             <div className="cw-modal-section">
               <div className="cw-modal-label">Instructions</div>
               <div style={{ display: "flex", gap: 5, marginBottom: 8, flexWrap: "wrap" }}>
-                {[
-                  { label: "B", cls: "font-bold", insert: "**bold** " },
-                  { label: "I", cls: "italic", insert: "*italic* " },
-                  { label: "•", cls: "", insert: "- item\n" },
-                  { label: "H", cls: "", insert: "## Heading\n" },
-                  { label: "❝", cls: "", insert: "> quote\n" },
-                  { label: "</>", cls: "font-mono", insert: "`code` " },
-                ].map(({ label, insert }) => (
-                  <button
-                    key={label}
-                    type="button"
-                    onClick={() => setEditInstructions((prev) => prev + insert)}
-                    className="cw-fmt-btn"
-                  >
-                    {label}
-                  </button>
+                {[{ label: "B", insert: "**bold** " }, { label: "I", insert: "*italic* " }, { label: "•", insert: "- item\n" }, { label: "H", insert: "## Heading\n" }, { label: "❝", insert: "> quote\n" }, { label: "</>", insert: "`code` " }].map(({ label, insert }) => (
+                  <button key={label} type="button" onClick={() => setEditInstructions((prev) => prev + insert)} className="cw-fmt-btn">{label}</button>
                 ))}
               </div>
-              <textarea
-                value={editInstructions}
-                onChange={(e) => setEditInstructions(e.target.value)}
-                className="cw-modal-textarea"
-                rows={7}
-                style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12 }}
-                placeholder="Project instructions (max 4000 chars)"
-              />
-              <div style={{ fontSize: 11, color: "var(--tm)", marginTop: 2 }}>
-                {editInstructions.length}/4000
-              </div>
+              <textarea value={editInstructions} onChange={(e) => setEditInstructions(e.target.value)} className="cw-modal-textarea" rows={7} style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12 }} placeholder="Project instructions (max 4000 chars)" />
+              <div style={{ fontSize: 11, color: "var(--tm)", marginTop: 2 }}>{editInstructions.length}/4000</div>
             </div>
-
             <div className="cw-modal-footer">
               <button type="button" onClick={() => setShowSettings(false)} className="cw-btn-cancel">Cancel</button>
               <button type="button" onClick={saveProjectSettings} className="cw-btn-save">Save Changes</button>
@@ -1914,47 +1861,24 @@ const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
         <div className="cw-backdrop" onClick={(e) => e.target === e.currentTarget && setMembersOpen(false)}>
           <div className="cw-modal">
             <div className="cw-modal-header">
-              <div>
-                <div className="cw-modal-title">Project Members</div>
-                <div className="cw-modal-sub">Invite teammates and manage access</div>
-              </div>
-              <button className="cw-modal-close" onClick={() => setMembersOpen(false)}>
-                <X size={14} />
-              </button>
+              <div><div className="cw-modal-title">Project Members</div><div className="cw-modal-sub">Invite teammates and manage access</div></div>
+              <button className="cw-modal-close" onClick={() => setMembersOpen(false)}><X size={14} /></button>
             </div>
-
             {myProjectRole === "owner" && (
               <div className="cw-modal-section">
                 <div className="cw-modal-label">Invite teammate</div>
                 <div className="cw-invite-row">
-                  <input
-                    value={inviteEmail}
-                    onChange={(e) => setInviteEmail(e.target.value)}
-                    placeholder="teammate@example.com"
-                    className="cw-invite-input"
-                  />
-                  <select
-                    value={inviteRole}
-                    onChange={(e) => setInviteRole(e.target.value as "editor" | "viewer")}
-                    className="cw-invite-select"
-                  >
+                  <input value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="teammate@example.com" className="cw-invite-input" />
+                  <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value as "editor" | "viewer")} className="cw-invite-select">
                     <option value="viewer">Viewer</option>
                     <option value="editor">Editor</option>
                   </select>
                   <button onClick={inviteMember} className="cw-invite-btn">Invite</button>
                 </div>
-                <div style={{ fontSize: 11, color: "var(--tm)", marginTop: 7 }}>
-                  The user must already have a CoWork.ai account.
-                </div>
+                <div style={{ fontSize: 11, color: "var(--tm)", marginTop: 7 }}>The user must already have a CoWork.ai account.</div>
               </div>
             )}
-
-            {myProjectRole !== "owner" && (
-              <div className="cw-viewer-notice">
-                You can view members, but only the project owner can invite or remove teammates.
-              </div>
-            )}
-
+            {myProjectRole !== "owner" && <div className="cw-viewer-notice">You can view members, but only the project owner can invite or remove teammates.</div>}
             <div style={{ marginTop: 12 }}>
               {members.length === 0 ? (
                 <p style={{ fontSize: 12.5, color: "var(--tm)" }}>No members found.</p>
@@ -1962,20 +1886,13 @@ const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
                 members.map((member) => (
                   <div key={member.id} className="cw-member-card">
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <div className="cw-avatar">
-                        {member.email.slice(0, 2).toUpperCase()}
-                      </div>
-                      <div>
-                        <div className="cw-member-email">{member.email}</div>
-                        <div className="cw-member-role">{member.role}</div>
-                      </div>
+                      <div className="cw-avatar">{member.email.slice(0, 2).toUpperCase()}</div>
+                      <div><div className="cw-member-email">{member.email}</div><div className="cw-member-role">{member.role}</div></div>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <span className={`cw-role-badge ${member.role}`}>{member.role}</span>
                       {myProjectRole === "owner" && member.role !== "owner" && (
-                        <button onClick={() => removeMember(member.id)} className="cw-btn-remove">
-                          Remove
-                        </button>
+                        <button onClick={() => removeMember(member.id)} className="cw-btn-remove">Remove</button>
                       )}
                     </div>
                   </div>
@@ -1985,6 +1902,9 @@ const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
           </div>
         </div>
       )}
+
+      {/* CSS for spinner */}
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }

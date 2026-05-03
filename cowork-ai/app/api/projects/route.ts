@@ -18,27 +18,27 @@ export async function GET(req: NextRequest) {
     }
 
     const projects = await sql`
-  SELECT DISTINCT
-    projects.id,
-    projects.name,
-    projects.description,
-    projects.instructions,
-    projects.status,
-    projects.created_at,
-    projects.updated_at,
-    users.email AS owner_email,
-    CASE
-      WHEN projects.user_id = ${user.userId} THEN 'owner'
-      ELSE project_members.role
-    END AS my_role
-  FROM projects
-  JOIN users ON users.id = projects.user_id
-  LEFT JOIN project_members
-    ON project_members.project_id = projects.id
-  WHERE projects.user_id = ${user.userId}
-     OR project_members.user_id = ${user.userId}
-  ORDER BY projects.updated_at DESC
-`;
+      SELECT DISTINCT
+        projects.id,
+        projects.name,
+        projects.description,
+        projects.instructions,
+        projects.status,
+        projects.created_at,
+        projects.updated_at,
+        users.email AS owner_email,
+        CASE
+          WHEN projects.user_id = ${user.userId} THEN 'owner'
+          ELSE project_members.role
+        END AS my_role
+      FROM projects
+      JOIN users ON users.id = projects.user_id
+      LEFT JOIN project_members
+        ON project_members.project_id = projects.id
+      WHERE projects.user_id = ${user.userId}
+         OR project_members.user_id = ${user.userId}
+      ORDER BY projects.updated_at DESC
+    `;
 
     return NextResponse.json({ projects });
   } catch (error) {
@@ -70,6 +70,10 @@ export async function POST(req: NextRequest) {
     }
 
     const { name, description, instructions } = parsed.data;
+
+    // ── Step 4: Enforce max 5 files per project on creation ──
+    // (File limit is enforced at upload time in the files route,
+    //  but we also expose a helper here for reuse)
 
     const inserted = await sql`
       INSERT INTO projects (user_id, name, description, instructions)

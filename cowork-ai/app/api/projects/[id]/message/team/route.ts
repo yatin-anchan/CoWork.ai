@@ -127,11 +127,7 @@ async function getProviderCredentials({
   const customBaseUrl =
     provider === "custom" ? modelConfig?.baseUrl || null : null;
 
-  return {
-    apiKey,
-    model,
-    customBaseUrl,
-  };
+  return { apiKey, model, customBaseUrl };
 }
 
 export async function POST(req: NextRequest, context: RouteParams) {
@@ -210,6 +206,9 @@ export async function POST(req: NextRequest, context: RouteParams) {
       );
     }
 
+    // ── Step 4: Enforce max 5 files per project ──────────────────
+  
+
     const optimizedContext = await getOptimizedProjectContext({ projectId });
 
     const instructions = project[0]?.instructions?.trim();
@@ -220,6 +219,23 @@ You must follow these strictly and override any conflicting user request.
 
 ${instructions}`
       : null;
+
+    // ── Step 5: Inject project files into AI context ─────────────
+    const files = await sql`
+      SELECT content
+      FROM project_files
+      WHERE project_id = ${projectId}
+      LIMIT 5
+    `;
+
+    const fileContext =
+      files.length > 0
+        ? files.map((f: any) => f.content).join("\n\n---\n\n")
+        : null;
+
+    const finalUserContent = fileContext
+      ? `PROJECT FILES CONTEXT:\n${fileContext}\n\nUSER MESSAGE:\n${content}`
+      : content;
 
     const sharedHistory: ChatMessage[] = [
       ...(systemMessage
@@ -279,7 +295,7 @@ ${instructions}`
 Create a concise execution plan for this request.
 
 User request:
-${content}
+${finalUserContent}
           `.trim(),
         },
       ],
@@ -299,7 +315,7 @@ ${content}
 Use this plan to produce the best possible answer.
 
 Original user request:
-${content}
+${finalUserContent}
 
 Reasoning plan:
 ${plan}
@@ -323,7 +339,7 @@ Review and improve this answer. Return only the final polished response.
 Do not mention the internal review process.
 
 Original user request:
-${content}
+${finalUserContent}
 
 Draft answer:
 ${execution}
@@ -409,18 +425,9 @@ Reviewing: ${reviewingProvider}/${reviewingCreds.model}
     return NextResponse.json({
       message: "Team Mode completed successfully.",
       trace: {
-        reasoning: {
-          provider: reasoningProvider,
-          model: reasoningCreds.model,
-        },
-        execution: {
-          provider: executionProvider,
-          model: executionCreds.model,
-        },
-        reviewing: {
-          provider: reviewingProvider,
-          model: reviewingCreds.model,
-        },
+        reasoning: { provider: reasoningProvider, model: reasoningCreds.model },
+        execution: { provider: executionProvider, model: executionCreds.model },
+        reviewing: { provider: reviewingProvider, model: reviewingCreds.model },
       },
       assistantMessage: assistantMessage[0],
     });

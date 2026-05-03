@@ -48,6 +48,10 @@ export async function POST(req: NextRequest, context: RouteParams) {
       LIMIT 1
     `;
 
+    if (project.length === 0) {
+      return NextResponse.json({ error: "Project not found." }, { status: 404 });
+    }
+
     const instructions = project[0]?.instructions?.trim();
 
     const systemMessage = instructions
@@ -56,10 +60,6 @@ You must follow these strictly and override any conflicting user request.
 
 ${instructions}`
       : null;
-
-    if (project.length === 0) {
-      return NextResponse.json({ error: "Project not found." }, { status: 404 });
-    }
 
     const body = await req.json();
     const parsed = messageSchema.safeParse(body);
@@ -75,6 +75,20 @@ ${instructions}`
 
     const workType: WorkType =
       selectedRole === "auto" ? classifyMessage(content) : selectedRole;
+
+    // ── Step 4: Enforce max 5 files per project ──────────────────
+    const fileCount = await sql`
+      SELECT COUNT(*) AS count
+      FROM project_files
+      WHERE project_id = ${projectId}
+    `;
+
+    if (Number(fileCount[0].count) >= 5) {
+      return NextResponse.json(
+        { error: "Max 5 files allowed per project. Remove a file to continue." },
+        { status: 400 }
+      );
+    }
 
     // Project-level override takes priority, then global, then default
     const projectRoleAssignment = await sql`
@@ -141,22 +155,38 @@ ${instructions}`
     `;
 
     const MAX_HISTORY = 10;
+    const trimmedHistory = historyRows.slice(-MAX_HISTORY);
 
-const trimmedHistory = historyRows.slice(-MAX_HISTORY);
+    const sharedHistory: ChatMessage[] = trimmedHistory.map((item: any) => ({
+      role: item.role === "assistant" ? "assistant" : "user",
+      content: item.content,
+    }));
 
-const sharedHistory: ChatMessage[] = trimmedHistory.map((item: any) => ({
-  role: item.role === "assistant" ? "assistant" : "user",
-  content: item.content,
-}));
+    // ── Step 5: Inject project files into AI context ─────────────
+    const files = await sql`
+      SELECT content
+      FROM project_files
+      WHERE project_id = ${projectId}
+      LIMIT 5
+    `;
+
+    const fileContext =
+      files.length > 0
+        ? files.map((f: any) => f.content).join("\n\n---\n\n")
+        : null;
+
+    const finalUserContent = fileContext
+      ? `PROJECT FILES CONTEXT:\n${fileContext}\n\nUSER MESSAGE:\n${content}`
+      : content;
 
     const messagesForProvider: ChatMessage[] = [
       ...(systemMessage
-        ? [{ role: "system", content: systemMessage }]
+        ? [{ role: "system" as const, content: systemMessage }]
         : []),
 
       ...sharedHistory,
 
-      { role: "user", content },
+      { role: "user" as const, content: finalUserContent },
     ];
 
     const assistantResponse = await callAIProvider({

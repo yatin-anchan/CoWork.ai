@@ -124,6 +124,9 @@ export async function POST(req: NextRequest, context: RouteParams) {
       );
     }
 
+    // ── Step 4: Enforce max 5 files per project ──────────────────
+    
+
     const workType: WorkType =
       selectedRole === "auto" ? classifyMessage(content) : selectedRole;
 
@@ -192,6 +195,23 @@ You must follow these strictly and override any conflicting user request.
 ${instructions}`
       : null;
 
+    // ── Step 5: Inject project files into AI context ─────────────
+    const files = await sql`
+      SELECT content
+      FROM project_files
+      WHERE project_id = ${projectId}
+      LIMIT 5
+    `;
+
+    const fileContext =
+      files.length > 0
+        ? files.map((f: any) => f.content).join("\n\n---\n\n")
+        : null;
+
+    const finalUserContent = fileContext
+      ? `PROJECT FILES CONTEXT:\n${fileContext}\n\nUSER MESSAGE:\n${content}`
+      : content;
+
     const messagesForProvider: ChatMessage[] = [
       ...(systemMessage
         ? [{ role: "system" as const, content: systemMessage }]
@@ -199,7 +219,7 @@ ${instructions}`
 
       ...optimizedContext.messages,
 
-      { role: "user", content },
+      { role: "user" as const, content: finalUserContent },
     ];
 
     const userMessage = await sql`

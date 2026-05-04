@@ -24,9 +24,9 @@ export async function POST(req: NextRequest) {
     const { email, password } = parsed.data;
 
     const users = await sql`
-      SELECT id, email, password_hash, created_at
+      SELECT id, email, name, password_hash, created_at
       FROM users
-      WHERE email = ${email}
+      WHERE email = ${email.toLowerCase()}
     `;
 
     if (users.length === 0) {
@@ -38,10 +38,7 @@ export async function POST(req: NextRequest) {
 
     const user = users[0];
 
-    const isValidPassword = await comparePassword(
-      password,
-      user.password_hash
-    );
+    const isValidPassword = await comparePassword(password, user.password_hash);
 
     if (!isValidPassword) {
       return NextResponse.json(
@@ -55,21 +52,28 @@ export async function POST(req: NextRequest) {
       email: user.email,
     });
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       message: "Login successful.",
-      token,
       user: {
         id: user.id,
         email: user.email,
+        name: user.name,
         created_at: user.created_at,
       },
     });
+
+    // Set httpOnly cookie — safe from XSS
+    response.cookies.set("token", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 60 * 60 * 24 * 7, // 7 days
+      path: "/",
+    });
+
+    return response;
   } catch (error) {
     console.error("Login error:", error);
-
-    return NextResponse.json(
-      { error: "Login failed." },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Login failed." }, { status: 500 });
   }
 }

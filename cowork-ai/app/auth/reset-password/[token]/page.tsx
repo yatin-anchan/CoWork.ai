@@ -1,48 +1,59 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 
-export default function LoginPage() {
+export default function ResetPasswordPage() {
+  const { token } = useParams<{ token: string }>();
   const router = useRouter();
 
-  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [status, setStatus] = useState<"idle" | "success" | "error">("idle");
+  const [message, setMessage] = useState("");
 
-  async function handleLogin(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
-    if (!email.trim() || !password.trim()) {
-      setError("Email and password are required.");
+    if (password !== confirm) {
+      setStatus("error");
+      setMessage("Passwords do not match.");
+      return;
+    }
+
+    if (password.length < 6) {
+      setStatus("error");
+      setMessage("Password must be at least 6 characters.");
       return;
     }
 
     setLoading(true);
-    setError("");
+    setStatus("idle");
 
     try {
-      const res = await fetch("/api/auth/login", {
+      const res = await fetch("/api/auth/reset-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: email.trim().toLowerCase(),
-          password,
-        }),
+        body: JSON.stringify({ token, password }),
       });
 
       const data = await res.json().catch(() => ({} as { error?: string }));
 
       if (!res.ok) {
-        throw new Error(data.error || "Login failed. Please try again.");
+        setStatus("error");
+        setMessage(data.error || "Something went wrong. Please try again.");
+        return;
       }
 
-      // No localStorage — token is set as httpOnly cookie by the server
-      router.push("/dashboard");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong.");
+      setStatus("success");
+      setMessage("Password reset successfully! Redirecting to login...");
+      setTimeout(() => router.push("/auth/login"), 2000);
+    } catch {
+      setStatus("error");
+      setMessage("Network error. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -68,21 +79,21 @@ export default function LoginPage() {
 
           <div className="max-w-sm">
             <p className="mb-4 inline-flex rounded-full border border-violet-400/20 bg-violet-400/10 px-3 py-1 text-xs font-bold uppercase tracking-wider text-violet-200">
-              Multi-model workspace
+              Account Security
             </p>
             <h1 className="text-4xl font-black leading-tight tracking-tight">
-              Continue building with your AI team.
+              Set a new password for your workspace.
             </h1>
             <p className="mt-5 text-sm leading-7 text-slate-400">
-              Access your projects, chats, model routing, team collaboration,
-              and persistent project memory from one secure workspace.
+              Choose a strong password to keep your projects, API keys, and
+              team collaborations secure.
             </p>
             <div className="mt-10 space-y-4 text-sm text-slate-300">
               {[
-                "Project memory and instructions",
-                "Multi-chat workflows",
-                "Team Mode with role-based models",
-                "Encrypted API key storage",
+                "At least 6 characters long",
+                "Mix letters, numbers and symbols",
+                "Never reuse old passwords",
+                "Keep it unique to CoWork AI",
               ].map((item) => (
                 <div key={item} className="flex items-center gap-3">
                   <span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-500/15 text-xs text-indigo-300">
@@ -96,7 +107,7 @@ export default function LoginPage() {
         </div>
 
         {/* Right panel */}
-        <form onSubmit={handleLogin} className="p-7 sm:p-10">
+        <form onSubmit={handleSubmit} className="p-7 sm:p-10">
           <div className="mb-8 md:hidden">
             <a href="/" className="flex items-center gap-3 no-underline">
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600">
@@ -109,54 +120,39 @@ export default function LoginPage() {
           </div>
 
           <div>
-            <h2 className="text-2xl font-black tracking-tight">Welcome back</h2>
+            <h2 className="text-2xl font-black tracking-tight">Reset password</h2>
             <p className="mt-2 text-sm text-slate-400">
-              Sign in to continue to your workspace.
+              Enter and confirm your new password below.
             </p>
           </div>
 
-          {error && (
+          {status === "error" && (
             <div className="mt-6 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
-              {error}
+              {message}
+            </div>
+          )}
+
+          {status === "success" && (
+            <div className="mt-6 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
+              {message}
             </div>
           )}
 
           <div className="mt-7 space-y-5">
             <label className="block">
               <span className="mb-2 block text-sm font-semibold text-slate-300">
-                Email
+                New Password
               </span>
-              <input
-                type="email"
-                placeholder="you@example.com"
-                autoFocus
-                className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-indigo-400/60 focus:ring-4 focus:ring-indigo-500/10"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                autoComplete="email"
-              />
-            </label>
-
-            <label className="block">
-              <div className="mb-2 flex items-center justify-between">
-                <span className="text-sm font-semibold text-slate-300">
-                  Password
-                </span>
-                <a
-                  href="/auth/forgot-password"
-                  className="text-xs font-semibold text-indigo-300 hover:text-indigo-200"
-                >
-                  Forgot password?
-                </a>
-              </div>
               <div className="relative">
                 <input
                   type={showPassword ? "text" : "password"}
-                  placeholder="Enter your password"
+                  placeholder="Min. 6 characters"
+                  autoFocus
                   className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-3 pr-20 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-indigo-400/60 focus:ring-4 focus:ring-indigo-500/10"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  autoComplete="current-password"
+                  autoComplete="new-password"
+                  required
                 />
                 <button
                   type="button"
@@ -167,22 +163,47 @@ export default function LoginPage() {
                 </button>
               </div>
             </label>
+
+            <label className="block">
+              <span className="mb-2 block text-sm font-semibold text-slate-300">
+                Confirm Password
+              </span>
+              <div className="relative">
+                <input
+                  type={showConfirm ? "text" : "password"}
+                  placeholder="Repeat your password"
+                  className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-3 pr-20 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-indigo-400/60 focus:ring-4 focus:ring-indigo-500/10"
+                  value={confirm}
+                  onChange={(e) => setConfirm(e.target.value)}
+                  autoComplete="new-password"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirm((v) => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-400 hover:text-white"
+                >
+                  {showConfirm ? "Hide" : "Show"}
+                </button>
+              </div>
+            </label>
           </div>
 
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || status === "success"}
             className="mt-7 flex w-full items-center justify-center rounded-xl bg-white px-4 py-3 text-sm font-bold text-slate-950 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {loading ? "Signing in..." : "Sign in"}
+            {loading ? "Resetting..." : "Reset Password"}
           </button>
 
           <p className="mt-6 text-center text-sm text-slate-400">
-            Don't have an account?{" "}
+            Remember your password?{" "}
             <a
-              href="/auth/register"
-              className="font-semibold text-indigo-300 hover:text-indigo-200">
-              Create one
+              href="/auth/login"
+              className="font-semibold text-indigo-300 hover:text-indigo-200"
+            >
+              Sign in
             </a>
           </p>
         </form>

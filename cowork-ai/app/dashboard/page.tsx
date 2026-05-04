@@ -31,44 +31,28 @@ export default function DashboardPage() {
   const [projectLoading, setProjectLoading] = useState(false);
   const [error, setError] = useState("");
 
-  function getToken() {
-    return localStorage.getItem("token");
-  }
 
   async function fetchUserAndProjects() {
-    const token = getToken();
+  const userRes = await fetch("/api/me", {
+    credentials: "include", // ← sends cookie automatically
+  });
 
-    if (!token) {
-      router.push("/auth/login");
-      return;
-    }
-
-    const userRes = await fetch("/api/me", {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-
-    if (!userRes.ok) {
-      localStorage.removeItem("token");
-      router.push("/auth/login");
-      return;
-    }
-
-    const userData = await userRes.json();
-    setUser(userData.user);
-
-    const projectRes = await fetch("/api/projects", {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-
-    const projectData = await projectRes.json();
-    setProjects(projectData.projects || []);
-
-    setLoading(false);
+  if (!userRes.ok) {
+    router.push("/auth/login");
+    return;
   }
+
+  const userData = await userRes.json();
+  setUser(userData.user);
+
+  const projectRes = await fetch("/api/projects", {
+    credentials: "include",
+  });
+
+  const projectData = await projectRes.json();
+  setProjects(projectData.projects || []);
+  setLoading(false);
+}
 
   useEffect(() => {
     fetchUserAndProjects();
@@ -77,28 +61,16 @@ export default function DashboardPage() {
   async function handleCreateProject(e: React.FormEvent) {
     e.preventDefault();
 
-    const token = getToken();
-
-    if (!token) {
-      router.push("/auth/login");
-      return;
-    }
-
     setProjectLoading(true);
     setError("");
 
     try {
       const res = await fetch("/api/projects", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          name,
-          description,
-        }),
-      });
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  credentials: "include", // ← replaces Authorization header
+  body: JSON.stringify({ name, description }),
+});
 
       const data = await res.json();
 
@@ -110,39 +82,35 @@ export default function DashboardPage() {
       setDescription("");
 
       await fetchUserAndProjects();
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
+    } catch (err) {
+  setError(err instanceof Error ? err.message : "Failed to create project");
+}
+    finally {
       setProjectLoading(false);
     }
   }
 
   async function handleDeleteProject(projectId: string) {
-    const token = getToken();
-
-    if (!token) {
-      router.push("/auth/login");
-      return;
-    }
 
     const confirmed = confirm("Delete this project? This cannot be undone.");
 
     if (!confirmed) return;
 
     await fetch(`/api/projects/${projectId}`, {
-      method: "DELETE",
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
+  method: "DELETE",
+  credentials: "include", // ← replaces Authorization header
+});
 
     await fetchUserAndProjects();
   }
 
-  function handleLogout() {
-    localStorage.removeItem("token");
-    router.push("/auth/login");
-  }
+  async function handleLogout() {
+  await fetch("/api/auth/logout", {
+    method: "POST",
+    credentials: "include",
+  });
+  router.push("/auth/login");
+}
 
   if (loading) {
     return (

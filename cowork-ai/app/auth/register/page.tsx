@@ -8,6 +8,12 @@ export default function RegisterPage() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
+const [age, setAge] = useState("");
+const [dob, setDob] = useState("");
+const [gender, setGender] = useState("");
+const [mobileNumber, setMobileNumber] = useState("");
+const [country, setCountry] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -22,7 +28,16 @@ export default function RegisterPage() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({
+  name,
+  email,
+  password,
+  age: age ? Number(age) : null,
+  dob: dob || null,
+  gender: gender || null,
+  mobileNumber: mobileNumber || null,
+  country: country || null,
+}),
       });
 
       const data = await res.json();
@@ -50,6 +65,18 @@ export default function RegisterPage() {
         <h1 className="text-2xl font-bold">Register</h1>
 
         {error && <p className="text-red-500">{error}</p>}
+
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" />
+<input value={age} onChange={(e) => setAge(e.target.value)} placeholder="Age" type="number" />
+<input value={dob} onChange={(e) => setDob(e.target.value)} type="date" />
+<select value={gender} onChange={(e) => setGender(e.target.value)}>
+  <option value="">Gender</option>
+  <option value="female">Female</option>
+  <option value="male">Male</option>
+  <option value="prefer_not_to_say">Prefer not to say</option>
+</select>
+<input value={mobileNumber} onChange={(e) => setMobileNumber(e.target.value)} placeholder="Mobile number" />
+<input value={country} onChange={(e) => setCountry(e.target.value)} placeholder="Country" />
 
         <input
           type="email"

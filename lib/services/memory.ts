@@ -39,9 +39,9 @@ ${project.memory_summary}`,
 
   optimizedMessages.push(
     ...recentMessages.map((item: any) => ({
-      role: item.role === "assistant" ? "assistant" : "user",
-      content: item.content,
-    }))
+  role: (item.role === "assistant" ? "assistant" : "user") as "user" | "assistant",
+  content: item.content,
+}))
   );
 
   return {

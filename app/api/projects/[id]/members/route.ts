@@ -179,7 +179,7 @@ export async function POST(req: NextRequest, context: RouteParams) {
   const plan = await getUserPlan(authUser.userId);
   const limits = getPlanLimits(plan);
 
-  if (!limits.canInviteRoles.includes(parsed.data.role)) {
+  if (!limits.canInviteRoles.includes(parsed.data.role as "viewer")) {
     return NextResponse.json(
       {
         error:

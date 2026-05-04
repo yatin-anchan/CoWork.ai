@@ -143,7 +143,6 @@ const roleAccent: Record<string, string> = {
 };
 
 const ACCEPTED_FILE_TYPES = ".txt,.md,.pdf,.csv,.json,.js,.ts,.tsx,.jsx,.py,.html,.css,.xml,.yaml,.yml";
-const MAX_FILES = 5;
 
 // ─── Theme CSS ───────────────────────────────────────────────────────────────
 
@@ -815,6 +814,7 @@ export default function ProjectChatPage() {
   const [isDragOver, setIsDragOver] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [editName, setEditName] = useState("");
+  const [userPlan, setUserPlan] = useState<"free" | "pro">("free");
   const [editDescription, setEditDescription] = useState("");
   const [editInstructions, setEditInstructions] = useState("");
   const [isDark, setIsDark] = useState(true);
@@ -824,6 +824,9 @@ export default function ProjectChatPage() {
     execution: "groq",
     reviewing: "google",
   });
+
+  // Derived from userPlan — re-evaluates whenever userPlan changes
+  const MAX_FILES = userPlan === "pro" ? 30 : 5;
 
   useEffect(() => { activeChatIdRef.current = activeChatId; }, [activeChatId]);
 
@@ -895,10 +898,10 @@ export default function ProjectChatPage() {
     setIsUploading(true);
     try {
       const formData = new FormData();
-formData.append("file", file);
-if (activeChatId) {
-  formData.append("chatId", activeChatId);
-}
+      formData.append("file", file);
+      if (activeChatId) {
+        formData.append("chatId", activeChatId);
+      }
       const res = await fetch(`/api/projects/${projectId}/files`, {
         method: "POST",
         credentials: "include",
@@ -1097,6 +1100,11 @@ if (activeChatId) {
       if (!text) { setLoading(false); return; }
       const data = JSON.parse(text);
       setProject(data.project);
+      const meRes = await fetch("/api/me", { credentials: "include" });
+      if (meRes.ok) {
+        const meData = await meRes.json();
+        setUserPlan(meData.user?.plan || "free");
+      }
       await fetchRoleAssignments();
       await fetchUsage();
       await fetchProjectFiles();
@@ -1335,7 +1343,20 @@ if (activeChatId) {
           >
             {selectMode ? "Cancel Select" : "Select"}
           </button>
-          <button onClick={() => setUsageOpen(true)} className="cw-nav-btn"><BarChart3 size={13} /><span>Usage</span></button>
+          <button
+            onClick={() => {
+              if (userPlan !== "pro") {
+                alert("Full usage analytics are a Pro feature. Upgrade to unlock.");
+                return;
+              }
+              setUsageOpen(true);
+            }}
+            className="cw-nav-btn"
+            title={userPlan !== "pro" ? "Pro feature" : ""}
+          >
+            <BarChart3 size={13} />
+            <span>Usage {userPlan !== "pro" && "⚡"}</span>
+          </button>
           <button onClick={() => router.push("/dashboard")} className="cw-nav-btn"><LayoutDashboard size={13} /><span>Dashboard</span></button>
           <button className="cw-theme-toggle" onClick={() => setIsDark(!isDark)} title="Toggle theme" style={{ position: "relative" }}>
             <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 5px", pointerEvents: "none" }}>
@@ -1528,7 +1549,13 @@ if (activeChatId) {
               <div className="cw-mode-row">
                 <div className="cw-mode-tabs">
                   <button type="button" onClick={() => setMessageMode("single")} className={`cw-mode-tab ${messageMode === "single" ? "active" : ""}`}>Single Model</button>
-                  <button type="button" onClick={() => setMessageMode("team")} className={`cw-mode-tab ${messageMode === "team" ? "active" : ""}`}>Team Mode Pro</button>
+                  <button type="button" onClick={() => {
+              if (userPlan !== "pro") {
+                alert("Team Mode is a Pro feature. Upgrade to unlock.");
+                return;
+              }
+              setMessageMode("team");
+            }}className={`cw-mode-tab ${messageMode === "team" ? "active" : ""}`}>Team Mode {userPlan !== "pro" && "⚡"}</button>
                 </div>
                 <span className="cw-mode-hint">reasoning → execution → review</span>
               </div>
@@ -1625,8 +1652,8 @@ if (activeChatId) {
                         </div>
                       )}
                       <span className="text-[10px] text-[var(--tm)]">
-  Used in: {f.chat_title || "All project chats"}
-</span>
+                        Used in: {f.chat_title || "All project chats"}
+                      </span>
                       <div className="cw-file-list-meta">{f.file_type} · {new Date(f.created_at).toLocaleDateString()}</div>
                     </div>
                   </div>
@@ -1683,7 +1710,7 @@ if (activeChatId) {
                   {project?.my_role === "owner" ? (
                     <select value={chat.visibility} onClick={(e) => e.stopPropagation()} onChange={(e) => updateChatVisibility(chat.id, e.target.value as "public" | "private")} className="cw-vis-select">
                       <option value="public">Public</option>
-                      <option value="private">Private</option>
+                      <option value="private" >Private {userPlan !== "pro" && "⚡"}</option>
                     </select>
                   ) : (
                     <span className="cw-vis-chip">{chat.visibility}</span>

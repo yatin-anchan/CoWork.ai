@@ -6,6 +6,7 @@ import {
   canManageMembers,
   getProjectAccess,
 } from "@/lib/auth/projectAccess";
+import { getUserPlan, getPlanLimits } from "@/lib/billing/plan";
 
 type RouteParams = {
   params: Promise<{ id: string }>;
@@ -86,6 +87,17 @@ export async function PATCH(req: NextRequest, context: RouteParams) {
     );
   }
 
+  // Pro-only: changing member roles
+  const plan = await getUserPlan(authUser.userId);
+  const limits = getPlanLimits(plan);
+
+  if (!limits.canManageMembers) {
+    return NextResponse.json(
+      { error: "Member management is a Pro feature. Upgrade to Pro to change roles." },
+      { status: 403 }
+    );
+  }
+
   const body = await req.json();
   const parsed = updateMemberRoleSchema.safeParse(body);
 
@@ -131,6 +143,7 @@ export async function PATCH(req: NextRequest, context: RouteParams) {
     member: updated[0],
   });
 }
+
 export async function POST(req: NextRequest, context: RouteParams) {
   const authUser = getAuthUser(req);
 
@@ -159,6 +172,20 @@ export async function POST(req: NextRequest, context: RouteParams) {
     return NextResponse.json(
       { error: "Valid email and role are required." },
       { status: 400 }
+    );
+  }
+
+  // Free plan: viewer-only invites
+  const plan = await getUserPlan(authUser.userId);
+  const limits = getPlanLimits(plan);
+
+  if (!limits.canInviteRoles.includes(parsed.data.role)) {
+    return NextResponse.json(
+      {
+        error:
+          "Free plan can only invite viewers. Upgrade to Pro to invite editors.",
+      },
+      { status: 403 }
     );
   }
 
@@ -238,6 +265,17 @@ export async function DELETE(req: NextRequest, context: RouteParams) {
   if (!canManageMembers(access.role)) {
     return NextResponse.json(
       { error: "Only the project owner can remove members." },
+      { status: 403 }
+    );
+  }
+
+  // Pro-only: removing members
+  const plan = await getUserPlan(authUser.userId);
+  const limits = getPlanLimits(plan);
+
+  if (!limits.canManageMembers) {
+    return NextResponse.json(
+      { error: "Member management is a Pro feature. Upgrade to Pro to remove members." },
       { status: 403 }
     );
   }

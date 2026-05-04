@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { sql } from "@/lib/db/neon";
 import { getAuthUser } from "@/lib/auth/middleware";
+import { getUserPlan } from "@/lib/billing/plan";
 import { decryptText } from "@/lib/crypto/encrypt";
 import {
   AIProvider,
@@ -41,17 +42,6 @@ function getDefaultProviderModel(provider: string, workType: WorkType) {
   if (workType === "execution") return "llama-3.3-70b-versatile";
   if (workType === "research") return "openrouter/free";
   return "gemini-2.0-flash";
-}
-
-async function getUserPlan(userId: string) {
-  const rows = await sql`
-    SELECT plan
-    FROM users
-    WHERE id = ${userId}
-    LIMIT 1
-  `;
-
-  return rows[0]?.plan || "free";
 }
 
 async function getProviderForRole({
@@ -142,11 +132,11 @@ export async function POST(req: NextRequest, context: RouteParams) {
 
     const userPlan = await getUserPlan(authUser.userId);
 
-    if (userPlan === "free") {
+    if (userPlan !== "pro") {
       return NextResponse.json(
         {
           error:
-            "Team Mode is a premium feature. Upgrade to Pro to use multi-model collaboration.",
+            "Team Mode is a Pro feature. Upgrade to use multi-model collaboration.",
         },
         { status: 403 }
       );
@@ -206,9 +196,6 @@ export async function POST(req: NextRequest, context: RouteParams) {
       );
     }
 
-    // ── Step 4: Enforce max 5 files per project ──────────────────
-  
-
     const optimizedContext = await getOptimizedProjectContext({ projectId });
 
     const instructions = project[0]?.instructions?.trim();
@@ -220,7 +207,6 @@ You must follow these strictly and override any conflicting user request.
 ${instructions}`
       : null;
 
-    // ── Step 5: Inject project files into AI context ─────────────
     const files = await sql`
       SELECT content
       FROM project_files

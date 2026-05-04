@@ -4,6 +4,7 @@ import { getAuthUser } from "@/lib/auth/middleware";
 import { canEditProject, getProjectAccess } from "@/lib/auth/projectAccess";
 import { sendInviteEmail } from "@/lib/email/resend";
 import crypto from "crypto";
+import { getPlanLimits, getUserPlan } from "@/lib/billing/plan";
 
 type RouteParams = {
   params: Promise<{ id: string }>;
@@ -32,6 +33,19 @@ export async function POST(req: NextRequest, context: RouteParams) {
 
     if (!email) {
       return NextResponse.json({ error: "Email required" }, { status: 400 });
+    }
+
+    const plan = await getUserPlan(user.userId);
+    const limits = getPlanLimits(plan);
+
+    if (!limits.canInviteRoles.includes(role)) {
+      return NextResponse.json(
+        {
+          error:
+            "Free plan can only invite viewers. Upgrade to Pro to invite editors or owners.",
+        },
+        { status: 403 }
+      );
     }
 
     // Fetch project name and inviter email for the email copy

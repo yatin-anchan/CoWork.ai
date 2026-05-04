@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { sql } from "@/lib/db/neon";
 import { getAuthUser } from "@/lib/auth/middleware";
+import { getPlanLimits, getUserPlan } from "@/lib/billing/plan";
 
 const projectSchema = z.object({
   name: z.string().min(1).max(255),
@@ -70,6 +71,24 @@ export async function POST(req: NextRequest) {
     }
 
     const { name, description, instructions } = parsed.data;
+
+    const plan = await getUserPlan(user.userId);
+const limits = getPlanLimits(plan);
+
+if (Number.isFinite(limits.maxProjects)) {
+  const projectCount = await sql`
+    SELECT COUNT(*)::int AS count
+    FROM projects
+    WHERE user_id = ${user.userId}
+  `;
+
+  if (Number(projectCount[0]?.count || 0) >= limits.maxProjects) {
+    return NextResponse.json(
+      { error: "Free plan allows up to 3 projects. Upgrade to Pro for unlimited projects." },
+      { status: 403 }
+    );
+  }
+}
 
     // ── Step 4: Enforce max 5 files per project on creation ──
     // (File limit is enforced at upload time in the files route,

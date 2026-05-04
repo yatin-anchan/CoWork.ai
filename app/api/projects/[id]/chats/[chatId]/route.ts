@@ -3,6 +3,7 @@ import { z } from "zod";
 import { sql } from "@/lib/db/neon";
 import { getAuthUser } from "@/lib/auth/middleware";
 import { getProjectAccess } from "@/lib/auth/projectAccess";
+import { getUserPlan, getPlanLimits } from "@/lib/billing/plan";
 
 type RouteParams = {
   params: Promise<{ id: string; chatId: string }>;
@@ -53,22 +54,22 @@ export async function GET(req: NextRequest, context: RouteParams) {
     }
 
     const contexts = await sql`
-  SELECT
-    id,
-    parent_message_id,
-    reply_to_message_id,
-    version_number,
-    active_version,
-    role,
-    model,
-    content,
-    tokens_used,
-    timestamp
-  FROM contexts
-  WHERE project_id = ${projectId}
-  AND chat_id = ${chatId}
-  ORDER BY timestamp ASC
-`;
+      SELECT
+        id,
+        parent_message_id,
+        reply_to_message_id,
+        version_number,
+        active_version,
+        role,
+        model,
+        content,
+        tokens_used,
+        timestamp
+      FROM contexts
+      WHERE project_id = ${projectId}
+      AND chat_id = ${chatId}
+      ORDER BY timestamp ASC
+    `;
 
     return NextResponse.json({ chat, contexts });
   } catch (error: any) {
@@ -126,6 +127,19 @@ export async function PATCH(req: NextRequest, context: RouteParams) {
     }
 
     const { title, visibility } = parsed.data;
+
+    // Enforce private chats as Pro only
+    if (visibility === "private") {
+      const plan = await getUserPlan(user.userId);
+      const limits = getPlanLimits(plan);
+
+      if (!limits.canUsePrivateChats) {
+        return NextResponse.json(
+          { error: "Private chats are a Pro feature. Upgrade to Pro to use them." },
+          { status: 403 }
+        );
+      }
+    }
 
     // Build update dynamically — only update fields that were provided
     if (title !== undefined && visibility !== undefined) {

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { sql } from "@/lib/db/neon";
 import { getAuthUser } from "@/lib/auth/middleware";
 import { getProjectAccess } from "@/lib/auth/projectAccess";
+import { getUserPlan, getPlanLimits } from "@/lib/billing/plan";
 
 type RouteParams = {
   params: Promise<{ id: string }>;
@@ -149,6 +150,19 @@ export async function POST(req: NextRequest, context: RouteParams) {
     }
 
     const { visibility } = parsed.data;
+
+    // Enforce private chats as Pro only
+    if (visibility === "private") {
+      const plan = await getUserPlan(user.userId);
+      const limits = getPlanLimits(plan);
+
+      if (!limits.canUsePrivateChats) {
+        return NextResponse.json(
+          { error: "Private chats are a Pro feature. Upgrade to Pro to use them." },
+          { status: 403 }
+        );
+      }
+    }
 
     const countRows = await sql`
       SELECT COUNT(*) AS count

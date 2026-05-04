@@ -453,7 +453,7 @@ export async function POST(req: NextRequest, context: RouteParams) {
 
     const pdfBytes = await pdfDoc.save();
 
-    return new NextResponse(pdfBytes, {
+    return new NextResponse(pdfBytes.buffer as BodyInit, {
       headers: {
         "Content-Type":        "application/pdf",
         "Content-Disposition": `attachment; filename="chat-export.pdf"`,

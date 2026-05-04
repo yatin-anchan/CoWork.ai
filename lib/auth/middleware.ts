@@ -2,16 +2,13 @@ import { NextRequest } from "next/server";
 import { verifyToken } from "@/lib/auth/jwt";
 
 export function getAuthUser(req: NextRequest) {
-  const authHeader = req.headers.get("authorization");
+  // Read from httpOnly cookie instead of Authorization header
+  const token = req.cookies.get("token")?.value;
 
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return null;
-  }
-
-  const token = authHeader.split(" ")[1];
+  if (!token) return null;
 
   try {
-    return verifyToken(token);
+    return verifyToken(token); // returns { userId, email } or throws
   } catch {
     return null;
   }

@@ -5,8 +5,14 @@ import { hashPassword } from "@/lib/auth/hash";
 import { signToken } from "@/lib/auth/jwt";
 
 const registerSchema = z.object({
+  name: z.string().min(2).max(100),
   email: z.string().email(),
-  password: z.string().min(8),
+  password: z.string().min(6),
+  age: z.number().int().min(13).max(120).optional().nullable(),
+  dob: z.string().optional().nullable(),
+  gender: z.string().max(50).optional().nullable(),
+  mobileNumber: z.string().max(30).optional().nullable(),
+  country: z.string().max(100).optional().nullable(),
 });
 
 export async function POST(req: NextRequest) {
@@ -21,7 +27,16 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { email, password } = parsed.data;
+    const {
+  name,
+  email,
+  password,
+  age,
+  dob,
+  gender,
+  mobileNumber,
+  country,
+} = parsed.data;
 
     const existingUser = await sql`
       SELECT id FROM users WHERE email = ${email}
@@ -36,11 +51,29 @@ export async function POST(req: NextRequest) {
 
     const passwordHash = await hashPassword(password);
 
-    const users = await sql`
-      INSERT INTO users (email, password_hash)
-      VALUES (${email}, ${passwordHash})
-      RETURNING id, email, created_at
-    `;
+    const users =await sql`
+  INSERT INTO users (
+    name,
+    email,
+    password_hash,
+    age,
+    dob,
+    gender,
+    mobile_number,
+    country
+  )
+  VALUES (
+    ${name},
+    ${email.toLowerCase()},
+    ${passwordHash},
+    ${age || null},
+    ${dob || null},
+    ${gender || null},
+    ${mobileNumber || null},
+    ${country || null}
+  )
+  RETURNING id, name, email, age, dob, gender, mobile_number, country, created_at
+`;
 
     const user = users[0];
 

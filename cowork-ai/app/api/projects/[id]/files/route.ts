@@ -76,11 +76,18 @@ export async function GET(req: NextRequest, context: RouteParams) {
     }
 
     const files = await sql`
-      SELECT id, file_name, file_type, created_at
-      FROM project_files
-      WHERE project_id = ${projectId}
-      ORDER BY created_at DESC
-    `;
+  SELECT
+    project_files.id,
+    project_files.chat_id,
+    project_files.file_name,
+    project_files.file_type,
+    project_files.created_at,
+    chats.title AS chat_title
+  FROM project_files
+  LEFT JOIN chats ON chats.id = project_files.chat_id
+  WHERE project_files.project_id = ${projectId}
+  ORDER BY project_files.created_at DESC
+`;
 
     return NextResponse.json({ files });
   } catch (error) {
@@ -129,6 +136,9 @@ export async function POST(req: NextRequest, context: RouteParams) {
 
     const formData = await req.formData();
     const file = formData.get("file");
+    const chatId = formData.get("chatId");
+const normalizedChatId =
+  typeof chatId === "string" && chatId.length > 0 ? chatId : null;
 
     if (!(file instanceof File)) {
       return NextResponse.json({ error: "File is required." }, { status: 400 });
@@ -161,20 +171,22 @@ export async function POST(req: NextRequest, context: RouteParams) {
 
     const inserted = await sql`
       INSERT INTO project_files (
-        project_id,
-        user_id,
-        file_name,
-        file_type,
-        content
-      )
+  project_id,
+  chat_id,
+  user_id,
+  file_name,
+  file_type,
+  content
+)
       VALUES (
-        ${projectId},
-        ${user.userId},
-        ${file.name},
-        ${extension},
-        ${content.slice(0, 50000)}
-      )
-      RETURNING id, file_name, file_type, created_at
+  ${projectId},
+  ${normalizedChatId},
+  ${user.userId},
+  ${file.name},
+  ${extension},
+  ${content.slice(0, 50000)}
+)
+      RETURNING id, chat_id, file_name, file_type, created_at
     `;
 
     return NextResponse.json(

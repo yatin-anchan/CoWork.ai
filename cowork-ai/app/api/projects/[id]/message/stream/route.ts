@@ -200,6 +200,7 @@ ${instructions}`
       SELECT content
       FROM project_files
       WHERE project_id = ${projectId}
+AND (chat_id = ${chatId} OR chat_id IS NULL)
       LIMIT 5
     `;
 

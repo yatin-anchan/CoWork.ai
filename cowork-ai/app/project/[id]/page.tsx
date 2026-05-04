@@ -82,8 +82,10 @@ type ContextMessage = {
 
 type ProjectFile = {
   id: string;
+  chat_id: string | null;
   file_name: string;
   file_type: string;
+  chat_title?: string | null;
   created_at: string;
 };
 
@@ -893,7 +895,10 @@ export default function ProjectChatPage() {
     setIsUploading(true);
     try {
       const formData = new FormData();
-      formData.append("file", file);
+formData.append("file", file);
+if (activeChatId) {
+  formData.append("chatId", activeChatId);
+}
       const res = await fetch(`/api/projects/${projectId}/files`, {
         method: "POST",
         credentials: "include",
@@ -1619,6 +1624,9 @@ export default function ProjectChatPage() {
                           {f.file_name}
                         </div>
                       )}
+                      <span className="text-[10px] text-[var(--tm)]">
+  Used in: {f.chat_title || "All project chats"}
+</span>
                       <div className="cw-file-list-meta">{f.file_type} · {new Date(f.created_at).toLocaleDateString()}</div>
                     </div>
                   </div>

@@ -17,10 +17,10 @@ export default function MessageRenderer({ content }: { content: string }) {
           blockquote: (props) => (
             <blockquote className="border-l-4 border-gray-600 pl-3 italic text-gray-300 my-2" {...props} />
           ),
-          code: ({ inline, ...props }) =>
-            inline ? (
-              <code className="bg-gray-800 px-1 rounded text-sm" {...props} />
-            ) : (
+          code: ({ className, children, ...props }: any) =>
+  !className?.includes('language-') ? (
+    <code className="bg-gray-800 px-1 rounded text-sm" {...props}>{children}</code>
+  ) : (
               <pre className="bg-black p-3 rounded overflow-x-auto my-2">
                 <code {...props} />
               </pre>

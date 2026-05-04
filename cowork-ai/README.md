@@ -1,36 +1,207 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+You’ve finished the **handoff docs phase** — now let’s close the loop properly with a **professional `README.md`** so anyone (teammates, recruiters, future users) can run and understand the project instantly.
 
-## Getting Started
+---
 
-First, run the development server:
+# 📄 `README.md` (Production-ready)
+
+Paste this:
+
+````md
+# 🚀 CoWork.ai
+
+CoWork.ai is a **multi-AI collaborative workspace** where users can organize work into projects, chat with AI models, and collaborate with teammates using structured context.
+
+---
+
+## ✨ Features
+
+### 🧠 Core
+- Project-based AI workspace
+- Multiple chats per project
+- Public / private chats
+- Project instructions + memory
+- Streaming AI responses
+
+### 🤖 AI
+- Single-model responses (Free)
+- Multi-model Team Mode (Pro)
+
+### 📎 Files
+- Upload files (PDF, TXT, code, DOCX)
+- Inject file context into AI
+- Rename / delete files
+- Chat-scoped file usage
+
+### 💬 Chat
+- Message retry
+- Message edit with versioning
+- Copy responses/questions
+- Export chat (PDF / TXT)
+- Select messages for export
+
+### 👥 Collaboration
+- Shared projects
+- Invite via email
+- Role system:
+  - Owner
+  - Editor (Pro)
+  - Viewer
+
+### 🔐 Auth
+- Register / Login
+- Forgot password
+- Reset password
+- Profile management
+
+### 📊 Analytics
+- Token usage (Free)
+- Full analytics dashboard (Pro)
+
+---
+
+## 💰 Plans
+
+### Free
+- Max 3 projects
+- Single-model AI
+- 5 files per project
+- Viewer-only collaboration
+
+### Pro
+- Unlimited projects
+- AI Team Mode
+- 30 files per project
+- Full collaboration (roles)
+- Private chats
+- Full analytics
+
+---
+
+## 🏗 Tech Stack
+
+- **Frontend:** Next.js (App Router)
+- **Backend:** Next.js API routes
+- **Database:** Neon PostgreSQL
+- **Auth:** JWT
+- **Email:** Resend
+- **File Processing:** pdf-parse / docx
+
+---
+
+## ⚙️ Setup
+
+### 1. Clone
+
+```bash
+git clone https://github.com/your-repo/cowork-ai.git
+cd cowork-ai
+````
+
+---
+
+### 2. Install
+
+```bash
+npm install
+```
+
+---
+
+### 3. Environment
+
+Create `.env.local`:
+
+```env
+DATABASE_URL=your_neon_db_url
+JWT_SECRET=your_secret
+
+RESEND_API_KEY=your_key
+APP_URL=http://localhost:3000
+```
+
+---
+
+### 4. Setup DB
+
+```bash
+npm run db:setup
+```
+
+---
+
+### 5. Run
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```txt
+http://localhost:3000
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+---
 
-## Learn More
+## 📡 API
 
-To learn more about Next.js, take a look at the following resources:
+Full API documentation:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```txt
+API_ROUTES.md
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+---
 
-## Deploy on Vercel
+## 📊 Plan Enforcement
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+See:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```txt
+PLAN_LIMITS.md
+```
+
+---
+
+## 🎨 Frontend Guide
+
+See:
+
+```txt
+FRONTEND_TODO.md
+```
+
+---
+
+## 📌 Notes
+
+* Backend strictly enforces Free vs Pro limits
+* Frontend should handle `403` responses gracefully
+* File context is scoped per chat + project
+
+---
+
+## 🚧 Future
+
+* Billing (Razorpay / Stripe)
+* Integrations
+* AI workflow automation
+* Team dashboards
+
+---
+
+## 👨‍💻 Author
+
+Built as a full-stack SaaS system with scalable architecture.
+
+````
+
+---
+
+## Commit it
+
+```powershell
+git add README.md
+git commit -m "docs: add project README"
+git push
+````

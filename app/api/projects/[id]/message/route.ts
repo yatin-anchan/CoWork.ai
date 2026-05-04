@@ -17,6 +17,7 @@ const messageSchema = z.object({
   selectedRole: z
     .enum(["auto", "research", "execution", "reviewing", "reasoning"])
     .default("reasoning"),
+  chatId: z.string().uuid().nullable().optional(),
 });
 
 function getDefaultProviderModel(provider: string, workType: WorkType) {
@@ -71,24 +72,10 @@ ${instructions}`
       );
     }
 
-    const { content, selectedRole } = parsed.data;
+    const { content, selectedRole, chatId } = parsed.data;
 
     const workType: WorkType =
       selectedRole === "auto" ? classifyMessage(content) : selectedRole;
-
-    // ── Step 4: Enforce max 5 files per project ──────────────────
-    const fileCount = await sql`
-      SELECT COUNT(*) AS count
-      FROM project_files
-      WHERE project_id = ${projectId}
-    `;
-
-    if (Number(fileCount[0].count) >= 5) {
-      return NextResponse.json(
-        { error: "Max 5 files allowed per project. Remove a file to continue." },
-        { status: 400 }
-      );
-    }
 
     // Project-level override takes priority, then global, then default
     const projectRoleAssignment = await sql`
@@ -162,11 +149,12 @@ ${instructions}`
       content: item.content,
     }));
 
-    // ── Step 5: Inject project files into AI context ─────────────
+    // ── Inject project files into AI context ─────────────
     const files = await sql`
       SELECT content
       FROM project_files
       WHERE project_id = ${projectId}
+      AND (chat_id = ${chatId ?? null} OR chat_id IS NULL)
       LIMIT 5
     `;
 

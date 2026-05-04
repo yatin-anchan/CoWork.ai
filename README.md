@@ -186,13 +186,3 @@ FRONTEND_TODO.md
 Built as a full-stack SaaS system with scalable architecture.
 
 ````
-
----
-
-## Commit it
-
-```powershell
-git add README.md
-git commit -m "docs: add project README"
-git push
-````

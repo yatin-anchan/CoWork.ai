@@ -473,7 +473,6 @@ const themeStyles = `
   }
   .cw-input-shell:focus-within { border-color: var(--b-glow); box-shadow: 0 0 0 4px var(--b-glow2); }
 
-  /* ── File upload button ── */
   .cw-attach-btn {
     width: 32px; height: 32px; border-radius: 9px; border: 1px solid var(--b-soft);
     background: var(--bg-e); color: var(--t2);
@@ -492,7 +491,6 @@ const themeStyles = `
     font-family: 'Syne', sans-serif;
   }
 
-  /* File chips strip */
   .cw-file-strip {
     display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px;
     padding: 8px 12px;
@@ -737,7 +735,6 @@ const themeStyles = `
   .cw-loading-dot:nth-child(2) { animation-delay: 0.2s; }
   .cw-loading-dot:nth-child(3) { animation-delay: 0.4s; }
 
-  /* Files modal */
   .cw-files-drop {
     border: 2px dashed var(--b-mid); border-radius: 14px;
     padding: 28px; text-align: center; cursor: pointer;
@@ -804,18 +801,16 @@ export default function ProjectChatPage() {
   const activeChatIdRef = useRef<string | null>(null);
   const [editingChatTitle, setEditingChatTitle] = useState(false);
   const [chatTitleDraft, setChatTitleDraft] = useState("");
-
+  const [renamingFileId, setRenamingFileId] = useState<string | null>(null);
+  const [renamingFileName, setRenamingFileName] = useState("");
   const [exportOpen, setExportOpen] = useState(false);
   const [exportIncludeQuestions, setExportIncludeQuestions] = useState(true);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
-
-  // ── File upload state ──────────────────────────────────────────────────────
   const [filesOpen, setFilesOpen] = useState(false);
   const [projectFiles, setProjectFiles] = useState<ProjectFile[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
-
   const [showSettings, setShowSettings] = useState(false);
   const [editName, setEditName] = useState("");
   const [editDescription, setEditDescription] = useState("");
@@ -836,8 +831,6 @@ export default function ProjectChatPage() {
 
   // ─── Utility ──────────────────────────────────────────────────────────────
 
-  function getToken() { return localStorage.getItem("token"); }
-
   function isUuid(value: string) {
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
   }
@@ -848,9 +841,7 @@ export default function ProjectChatPage() {
 
   function toggleSelectedMessage(messageId: string) {
     setSelectedMessageIds((prev) =>
-      prev.includes(messageId)
-        ? prev.filter((id) => id !== messageId)
-        : [...prev, messageId]
+      prev.includes(messageId) ? prev.filter((id) => id !== messageId) : [...prev, messageId]
     );
   }
 
@@ -864,12 +855,11 @@ export default function ProjectChatPage() {
   // ─── File upload handlers ─────────────────────────────────────────────────
 
   async function fetchProjectFiles() {
-    const token = getToken();
-    if (!token) return;
     try {
       const res = await fetch(`/api/projects/${projectId}/files`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
+      if (res.status === 401) { router.push("/auth/login"); return; }
       if (!res.ok) return;
       const data = await res.json();
       setProjectFiles(data.files || []);
@@ -878,50 +868,55 @@ export default function ProjectChatPage() {
     }
   }
 
+  async function renameProjectFile(fileId: string) {
+    if (!renamingFileName.trim()) return;
+    const res = await fetch(`/api/projects/${projectId}/files/${fileId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ fileName: renamingFileName.trim() }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { alert(data.error || "Failed to rename file."); return; }
+    setProjectFiles((prev) =>
+      prev.map((file) => file.id === fileId ? { ...file, file_name: data.file.file_name } : file)
+    );
+    setRenamingFileId(null);
+    setRenamingFileName("");
+  }
+
   async function uploadFile(file: File) {
     if (projectFiles.length >= MAX_FILES) {
       alert(`Maximum ${MAX_FILES} files allowed. Remove a file first.`);
       return;
     }
-
-    const token = getToken();
-    if (!token) return;
-
     setIsUploading(true);
     try {
       const formData = new FormData();
       formData.append("file", file);
-
       const res = await fetch(`/api/projects/${projectId}/files`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
         body: formData,
       });
-
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        alert(data.error || "Upload failed.");
-        return;
-      }
+      if (!res.ok) { alert(data.error || "Upload failed."); return; }
       await fetchProjectFiles();
     } catch (e) {
       console.error("[files] upload failed:", e);
       alert("Upload failed.");
     } finally {
       setIsUploading(false);
-      // Reset input so same file can be re-selected
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }
 
   async function deleteProjectFile(fileId: string) {
-    const token = getToken();
-    if (!token) return;
     if (!confirm("Remove this file from the project?")) return;
     try {
       const res = await fetch(`/api/projects/${projectId}/files/${fileId}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (!res.ok) { alert("Failed to delete file."); return; }
       await fetchProjectFiles();
@@ -950,29 +945,21 @@ export default function ProjectChatPage() {
       alert("Select at least one message to export.");
       return;
     }
-
-    const token = getToken();
-    if (!token) return;
-
-    const res = await fetch(
-      `/api/projects/${projectId}/chats/${activeChatId}/export`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          includeQuestions: exportIncludeQuestions,
-          format,
-          messageIds: selectMode && selectedMessageIds.length > 0 ? selectedMessageIds : null,
-        }),
-      }
-    );
-
+    const res = await fetch(`/api/projects/${projectId}/chats/${activeChatId}/export`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        includeQuestions: exportIncludeQuestions,
+        format,
+        messageIds: selectMode && selectedMessageIds.length > 0 ? selectedMessageIds : null,
+      }),
+    });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       alert(err.error || "Export failed");
       return;
     }
-
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -992,14 +979,14 @@ export default function ProjectChatPage() {
 
   async function saveEditedMessage(messageId: string) {
     if (!activeChatId) return;
-    const token = getToken();
-    if (!token) { router.push("/auth/login"); return; }
     const res = await fetch(`/api/projects/${projectId}/chats/${activeChatId}/messages/${messageId}/edit`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify({ content: editingDraft }),
     });
     const data = await res.json().catch(() => ({}));
+    if (res.status === 401) { router.push("/auth/login"); return; }
     if (!res.ok) { alert(data.error || "Failed to edit message."); return; }
     setEditingMessageId(null);
     setEditingDraft("");
@@ -1008,20 +995,20 @@ export default function ProjectChatPage() {
 
   async function retryAssistantMessage(assistantMessageId: string) {
     if (!activeChatId) { alert("Select a chat first."); return; }
-    const token = getToken();
-    if (!token) { router.push("/auth/login"); return; }
     setIsStreaming(true);
     setMessages((prev) => prev.map((m) =>
       m.id === assistantMessageId
-        ? { ...m, content: "", model: selectedRole === "auto" ? "streaming" : getProviderLabel(roleProviders[selectedRole]) }
+        ? { ...m, content: "", model: selectedRole === "auto" ? "streaming" : getProviderLabel(roleProviders[selectedRole as keyof RoleProviderMap]) }
         : m
     ));
     try {
       const res = await fetch(`/api/projects/${projectId}/chats/${activeChatId}/messages/${assistantMessageId}/retry`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ selectedRole }),
       });
+      if (res.status === 401) { router.push("/auth/login"); return; }
       if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.error || "Failed to retry."); await fetchChatMessages(activeChatId); return; }
       if (!res.body) { alert("Empty response."); await fetchChatMessages(activeChatId); return; }
       const reader = res.body.getReader();
@@ -1041,17 +1028,13 @@ export default function ProjectChatPage() {
   // ─── Fetchers ─────────────────────────────────────────────────────────────
 
   async function fetchUsage() {
-    const token = getToken();
-    if (!token) return;
-    const res = await fetch("/api/usage", { headers: { Authorization: `Bearer ${token}` } });
+    const res = await fetch("/api/usage", { credentials: "include" });
     if (!res.ok) return;
     setUsage(await res.json());
   }
 
   async function fetchMembers() {
-    const token = getToken();
-    if (!token) return;
-    const res = await fetch(`/api/projects/${projectId}/members`, { headers: { Authorization: `Bearer ${token}` } });
+    const res = await fetch(`/api/projects/${projectId}/members`, { credentials: "include" });
     if (!res.ok) return;
     const data = await res.json();
     setMembers(data.members || []);
@@ -1059,57 +1042,50 @@ export default function ProjectChatPage() {
   }
 
   async function inviteMember() {
-  const token = getToken();
-  if (!token) { router.push("/auth/login"); return; }
-  if (!inviteEmail.trim()) { alert("Enter an email address."); return; }
-
-  const res = await fetch(`/api/projects/${projectId}/invites`, {  // ← was /members
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ email: inviteEmail.trim(), role: inviteRole }),
-  });
-
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) { alert(data.error || "Failed to send invite."); return; }
-
-  alert(`Invite sent to ${inviteEmail.trim()}`);  // optional feedback
-  setInviteEmail("");
-  setInviteRole("viewer");
-}
+    if (!inviteEmail.trim()) { alert("Enter an email address."); return; }
+    const res = await fetch(`/api/projects/${projectId}/invites`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ email: inviteEmail.trim(), role: inviteRole }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401) { router.push("/auth/login"); return; }
+    if (!res.ok) { alert(data.error || "Failed to send invite."); return; }
+    alert(`Invite sent to ${inviteEmail.trim()}`);
+    setInviteEmail("");
+    setInviteRole("viewer");
+  }
 
   async function removeMember(userId: string) {
-    const token = getToken();
-    if (!token) { router.push("/auth/login"); return; }
     if (!confirm("Remove this member from the project?")) return;
     const res = await fetch(`/api/projects/${projectId}/members`, {
       method: "DELETE",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify({ userId }),
     });
     const data = await res.json().catch(() => ({}));
+    if (res.status === 401) { router.push("/auth/login"); return; }
     if (!res.ok) { alert(data.error || "Failed to remove."); return; }
     await fetchMembers();
   }
 
   async function fetchRoleAssignments() {
-    const token = getToken();
-    if (!token) return;
     const [globalRes, projectRes] = await Promise.all([
-      fetch("/api/models/roles", { headers: { Authorization: `Bearer ${token}` } }),
-      fetch(`/api/projects/${projectId}/roles`, { headers: { Authorization: `Bearer ${token}` } }),
+      fetch("/api/models/roles", { credentials: "include" }),
+      fetch(`/api/projects/${projectId}/roles`, { credentials: "include" }),
     ]);
     const next: RoleProviderMap = { reasoning: "google", research: "perplexity", execution: "groq", reviewing: "google" };
-    if (globalRes.ok) { const d = await globalRes.json(); d.roles?.forEach((i: any) => { if (i.role in next) next[i.role as keyof RoleProviderMap] = i.provider; }); }
-    if (projectRes.ok) { const d = await projectRes.json(); d.roles?.forEach((i: any) => { if (i.role in next) next[i.role as keyof RoleProviderMap] = i.provider; }); }
+    if (globalRes.ok) { const d = await globalRes.json(); d.roles?.forEach((i: { role: string; provider: string }) => { if (i.role in next) next[i.role as keyof RoleProviderMap] = i.provider; }); }
+    if (projectRes.ok) { const d = await projectRes.json(); d.roles?.forEach((i: { role: string; provider: string }) => { if (i.role in next) next[i.role as keyof RoleProviderMap] = i.provider; }); }
     setRoleProviders(next);
   }
 
   async function fetchProject() {
-    const token = getToken();
-    if (!token) { router.push("/auth/login"); return; }
     try {
-      const res = await fetch(`/api/projects/${projectId}`, { headers: { Authorization: `Bearer ${token}` } });
-      if (res.status === 401) { localStorage.removeItem("token"); router.push("/auth/login"); return; }
+      const res = await fetch(`/api/projects/${projectId}`, { credentials: "include" });
+      if (res.status === 401) { router.push("/auth/login"); return; }
       if (res.status === 404) { router.push("/dashboard"); return; }
       if (!res.ok) { setLoading(false); return; }
       const text = await res.text();
@@ -1124,13 +1100,12 @@ export default function ProjectChatPage() {
   }
 
   async function fetchChats(currentActiveChatId?: string | null) {
-    const token = getToken();
-    if (!token) return;
     const activeId = currentActiveChatId ?? activeChatIdRef.current ?? null;
     const url = activeId
       ? `/api/projects/${projectId}/chats?activeChatId=${activeId}`
       : `/api/projects/${projectId}/chats`;
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    const res = await fetch(url, { credentials: "include" });
+    if (res.status === 401) { router.push("/auth/login"); return; }
     if (!res.ok) return;
     const data = await res.json();
     const nextChats: Chat[] = data.chats || [];
@@ -1140,9 +1115,8 @@ export default function ProjectChatPage() {
   }
 
   async function fetchChatMessages(chatId: string) {
-    const token = getToken();
-    if (!token) return;
-    const res = await fetch(`/api/projects/${projectId}/chats/${chatId}`, { headers: { Authorization: `Bearer ${token}` } });
+    const res = await fetch(`/api/projects/${projectId}/chats/${chatId}`, { credentials: "include" });
+    if (res.status === 401) { router.push("/auth/login"); return; }
     if (!res.ok) return;
     const data = await res.json();
     setMessages(data.contexts || []);
@@ -1150,14 +1124,14 @@ export default function ProjectChatPage() {
   }
 
   async function createNewChat() {
-    const token = getToken();
-    if (!token) return;
     const res = await fetch(`/api/projects/${projectId}/chats`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify({ visibility: "public" }),
     });
     const data = await res.json().catch(() => ({}));
+    if (res.status === 401) { router.push("/auth/login"); return; }
     if (!res.ok) { alert(data.error || "Failed to create chat."); return; }
     const newChat: Chat = data.chat;
     setChats((prev) => [newChat, ...prev]);
@@ -1170,11 +1144,10 @@ export default function ProjectChatPage() {
   }
 
   async function updateChatVisibility(chatId: string, visibility: "public" | "private") {
-    const token = getToken();
-    if (!token) return;
     const res = await fetch(`/api/projects/${projectId}/chats/${chatId}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify({ visibility }),
     });
     const data = await res.json().catch(() => ({}));
@@ -1185,11 +1158,10 @@ export default function ProjectChatPage() {
   async function updateChatTitle(chatId?: string) {
     const targetId = chatId ?? activeChatIdRef.current;
     if (!targetId || !chatTitleDraft.trim()) return;
-    const token = getToken();
-    if (!token) return;
     const res = await fetch(`/api/projects/${projectId}/chats/${targetId}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify({ title: chatTitleDraft.trim() }),
     });
     const data = await res.json().catch(() => ({}));
@@ -1201,10 +1173,9 @@ export default function ProjectChatPage() {
   async function deleteChat() {
     if (!activeChatId) return;
     if (!confirm("Delete this chat and all its messages?")) return;
-    const token = getToken();
-    if (!token) return;
     const res = await fetch(`/api/projects/${projectId}/chats/${activeChatId}`, {
-      method: "DELETE", headers: { Authorization: `Bearer ${token}` },
+      method: "DELETE",
+      credentials: "include",
     });
     if (!res.ok) { alert("Failed to delete chat."); return; }
     setMessages([]); setActiveChatId(null); activeChatIdRef.current = null;
@@ -1222,23 +1193,23 @@ export default function ProjectChatPage() {
   // ─── Actions ──────────────────────────────────────────────────────────────
 
   async function updateRoleProvider(role: keyof RoleProviderMap, provider: string) {
-    const token = getToken();
-    if (!token) { router.push("/auth/login"); return; }
     setRoleProviders((prev) => ({ ...prev, [role]: provider }));
     const res = await fetch(`/api/projects/${projectId}/roles`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify({ role, provider }),
     });
+    if (res.status === 401) { router.push("/auth/login"); return; }
     if (!res.ok) { alert("Failed to update model."); return; }
     await fetchRoleAssignments();
   }
 
   async function saveProjectSettings() {
-    const token = getToken();
     const res = await fetch(`/api/projects/${projectId}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify({ name: editName, description: editDescription, instructions: editInstructions.slice(0, 4000) }),
     });
     if (!res.ok) { alert("Failed to update project."); return; }
@@ -1251,8 +1222,6 @@ export default function ProjectChatPage() {
     if (!canSendMessages) { alert("Viewer access cannot send messages."); return; }
     if (!activeChatId) { alert("Create or select a chat first."); return; }
     if (!input.trim()) return;
-    const token = getToken();
-    if (!token) { router.push("/auth/login"); return; }
     const messageText = input;
     setInput("");
     setIsStreaming(true);
@@ -1264,7 +1233,7 @@ export default function ProjectChatPage() {
     const tempAI: ContextMessage = {
       id: `assistant-${Date.now()}`, parent_message_id: null, reply_to_message_id: null,
       version_number: 1, active_version: true, role: "assistant",
-      model: messageMode === "team" ? "team-mode" : selectedRole === "auto" ? "streaming" : getProviderLabel(roleProviders[selectedRole]),
+      model: messageMode === "team" ? "team-mode" : selectedRole === "auto" ? "streaming" : getProviderLabel(roleProviders[selectedRole as keyof RoleProviderMap]),
       content: "", tokens_used: 0, timestamp: new Date().toISOString(),
     };
     setMessages((prev) => [...prev, tempUser, tempAI]);
@@ -1274,9 +1243,11 @@ export default function ProjectChatPage() {
         : `/api/projects/${projectId}/message/stream`;
       const res = await fetch(endpoint, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ content: messageText, selectedRole, chatId: activeChatId }),
       });
+      if (res.status === 401) { router.push("/auth/login"); return; }
       if (!res.ok) {
         const e = await res.json().catch(() => ({}));
         alert(e.error || "Failed to send.");
@@ -1395,10 +1366,7 @@ export default function ProjectChatPage() {
             <button onClick={createNewChat} className="cw-side-btn primary" style={{ marginBottom: 4 }}><Plus size={14} /> New Chat</button>
             <button onClick={() => router.push("/dashboard")} className="cw-side-btn"><LayoutDashboard size={14} /> New Project</button>
             <button onClick={() => setChatListOpen(true)} className="cw-side-btn"><Menu size={14} /> Chat List</button>
-            <button
-              onClick={() => { setFilesOpen(true); fetchProjectFiles(); }}
-              className="cw-side-btn"
-            >
+            <button onClick={() => { setFilesOpen(true); fetchProjectFiles(); }} className="cw-side-btn">
               <Paperclip size={14} />
               Project Files
               {projectFiles.length > 0 && (
@@ -1466,7 +1434,6 @@ export default function ProjectChatPage() {
                   const selectedIndex = selectedVersionByGroup[group.groupId] ?? group.activeIndex;
                   const message = group.versions[selectedIndex];
                   const isUser = message.role === "user";
-
                   return (
                     <div key={group.groupId} className="cw-msg-group" style={{ marginBottom: 14 }}>
                       <div className={`cw-bubble ${isUser ? "cw-bubble-user" : "cw-bubble-ai"}`}>
@@ -1516,29 +1483,15 @@ export default function ProjectChatPage() {
           {/* ── INPUT FORM ── */}
           <form onSubmit={handleSendMessage} className="cw-input-area">
             <div className="cw-input-max">
-
-              {/* File chips strip — shown when files are attached */}
               <div className="cw-input-shell">
-
-                {/* ── Attach button (paperclip icon) ── */}
                 <button
                   type="button"
                   className={`cw-attach-btn ${projectFiles.length > 0 ? "has-files" : ""} ${isUploading ? "uploading" : ""}`}
                   onClick={() => {
-                    if (projectFiles.length >= MAX_FILES) {
-                      setFilesOpen(true);
-                      fetchProjectFiles();
-                    } else {
-                      fileInputRef.current?.click();
-                    }
+                    if (projectFiles.length >= MAX_FILES) { setFilesOpen(true); fetchProjectFiles(); }
+                    else { fileInputRef.current?.click(); }
                   }}
-                  title={
-                    projectFiles.length >= MAX_FILES
-                      ? `${MAX_FILES} files attached — click to manage`
-                      : isUploading
-                      ? "Uploading…"
-                      : "Attach file to project context"
-                  }
+                  title={projectFiles.length >= MAX_FILES ? `${MAX_FILES} files attached — click to manage` : isUploading ? "Uploading…" : "Attach file to project context"}
                   disabled={isUploading}
                 >
                   {isUploading ? (
@@ -1546,19 +1499,10 @@ export default function ProjectChatPage() {
                   ) : (
                     <Paperclip size={14} />
                   )}
-                  {projectFiles.length > 0 && (
-                    <span className="cw-attach-count">{projectFiles.length}</span>
-                  )}
+                  {projectFiles.length > 0 && <span className="cw-attach-count">{projectFiles.length}</span>}
                 </button>
 
-                {/* Hidden file input */}
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept={ACCEPTED_FILE_TYPES}
-                  style={{ display: "none" }}
-                  onChange={handleFileInputChange}
-                />
+                <input ref={fileInputRef} type="file" accept={ACCEPTED_FILE_TYPES} style={{ display: "none" }} onChange={handleFileInputChange} />
 
                 <input
                   value={input}
@@ -1567,9 +1511,7 @@ export default function ProjectChatPage() {
                   placeholder={
                     projectFiles.length > 0
                       ? `Message CoWork.ai… (${projectFiles.length} file${projectFiles.length > 1 ? "s" : ""} in context)`
-                      : canSendMessages
-                      ? "Message CoWork.ai…"
-                      : "Viewer access: messaging is disabled"
+                      : canSendMessages ? "Message CoWork.ai…" : "Viewer access: messaging is disabled"
                   }
                   className="cw-text-input"
                 />
@@ -1578,7 +1520,6 @@ export default function ProjectChatPage() {
                 </button>
               </div>
 
-              {/* Mode toggle */}
               <div className="cw-mode-row">
                 <div className="cw-mode-tabs">
                   <button type="button" onClick={() => setMessageMode("single")} className={`cw-mode-tab ${messageMode === "single" ? "active" : ""}`}>Single Model</button>
@@ -1591,7 +1532,6 @@ export default function ProjectChatPage() {
                 <div className="cw-warn">No API keys connected. Go to API Manager to connect at least one model provider.</div>
               )}
 
-              {/* Role selector */}
               <div className="cw-role-row">
                 {roleButtons.map((role) => {
                   const active = selectedRole === role.value;
@@ -1630,14 +1570,11 @@ export default function ProjectChatPage() {
             <div className="cw-modal-header">
               <div>
                 <div className="cw-modal-title">Project Files</div>
-                <div className="cw-modal-sub">
-                  {projectFiles.length}/{MAX_FILES} files · Added to AI context automatically
-                </div>
+                <div className="cw-modal-sub">{projectFiles.length}/{MAX_FILES} files · Added to AI context automatically</div>
               </div>
               <button className="cw-modal-close" onClick={() => setFilesOpen(false)}><X size={14} /></button>
             </div>
 
-            {/* Drop zone */}
             {projectFiles.length < MAX_FILES && (
               <div
                 className={`cw-files-drop ${isDragOver ? "drag-over" : ""}`}
@@ -1646,15 +1583,9 @@ export default function ProjectChatPage() {
                 onDragLeave={() => setIsDragOver(false)}
                 onDrop={handleDrop}
               >
-                <div className="cw-files-drop-icon" style={{ display: "flex", justifyContent: "center" }}>
-                  <Paperclip size={22} />
-                </div>
-                <div className="cw-files-drop-text">
-                  {isUploading ? "Uploading…" : "Click or drag & drop a file"}
-                </div>
-                <div className="cw-files-drop-hint">
-                  Supported: .txt, .md, .pdf, .csv, .json, .js, .ts, .tsx, .py, .html, .css, .xml, .yaml
-                </div>
+                <div className="cw-files-drop-icon" style={{ display: "flex", justifyContent: "center" }}><Paperclip size={22} /></div>
+                <div className="cw-files-drop-text">{isUploading ? "Uploading…" : "Click or drag & drop a file"}</div>
+                <div className="cw-files-drop-hint">Supported: .txt, .md, .pdf, .csv, .json, .js, .ts, .tsx, .py, .html, .css, .xml, .yaml</div>
               </div>
             )}
 
@@ -1666,26 +1597,56 @@ export default function ProjectChatPage() {
                   <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
                     <FileText size={16} style={{ color: "var(--accent)", flexShrink: 0 }} />
                     <div style={{ minWidth: 0 }}>
-                      <div className="cw-file-list-name">{f.file_name}</div>
+                      {renamingFileId === f.id ? (
+                        <input
+                          value={renamingFileName}
+                          onChange={(e) => setRenamingFileName(e.target.value)}
+                          onBlur={() => renameProjectFile(f.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") renameProjectFile(f.id);
+                            if (e.key === "Escape") { setRenamingFileId(null); setRenamingFileName(""); }
+                          }}
+                          autoFocus
+                          className="cw-modal-input"
+                          style={{ marginBottom: 0, padding: "4px 8px", fontSize: 12 }}
+                        />
+                      ) : (
+                        <div
+                          className="cw-file-list-name"
+                          onDoubleClick={() => { setRenamingFileId(f.id); setRenamingFileName(f.file_name); }}
+                          title="Double-click to rename"
+                        >
+                          {f.file_name}
+                        </div>
+                      )}
                       <div className="cw-file-list-meta">{f.file_type} · {new Date(f.created_at).toLocaleDateString()}</div>
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => deleteProjectFile(f.id)}
-                    className="cw-btn-remove"
-                    style={{ display: "flex", alignItems: "center", gap: 4 }}
-                  >
-                    <Trash2 size={11} /> Remove
-                  </button>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <button
+                      type="button"
+                      onClick={() => { setRenamingFileId(f.id); setRenamingFileName(f.file_name); }}
+                      className="cw-btn-remove"
+                      style={{ borderColor: "rgba(134,134,172,0.24)", color: "var(--t2)", background: "var(--bg-e)", display: "flex", alignItems: "center", gap: 4 }}
+                      title="Rename file"
+                    >
+                      ✎
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deleteProjectFile(f.id)}
+                      className="cw-btn-remove"
+                      style={{ display: "flex", alignItems: "center", gap: 4 }}
+                    >
+                      <Trash2 size={11} /> Remove
+                    </button>
+                  </div>
                 </div>
               ))
             )}
 
             {projectFiles.length >= MAX_FILES && (
-              <div className="cw-warn" style={{ marginTop: 8 }}>
-                Max {MAX_FILES} files reached. Remove a file to upload a new one.
-              </div>
+              <div className="cw-warn" style={{ marginTop: 8 }}>Max {MAX_FILES} files reached. Remove a file to upload a new one.</div>
             )}
           </div>
         </div>
@@ -1905,7 +1866,6 @@ export default function ProjectChatPage() {
         </div>
       )}
 
-      {/* CSS for spinner */}
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );

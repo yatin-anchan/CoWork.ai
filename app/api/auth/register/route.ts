@@ -25,27 +25,28 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
 
     const parsed = registerSchema.safeParse(body);
-    if (!parsed.success) {
-      const errors = parsed.error?.errors ?? [];
-      console.error("[register] zod errors:", JSON.stringify(errors, null, 2));
 
-      const firstError = errors[0];
-      if (!firstError) {
-        // Zod returned no error detail — log the raw body for diagnosis
-        console.error("[register] empty errors array, raw body:", JSON.stringify(body, null, 2));
-        return NextResponse.json(
-          { error: "Invalid registration data." },
-          { status: 400 }
-        );
-      }
+if (!parsed.success) {
+  const issues = parsed.error.issues;
+  console.error("[register] zod issues:", JSON.stringify(issues, null, 2));
 
-      const field = firstError.path.length > 0 ? firstError.path.join(".") : "input";
-      const msg = firstError.message;
-      return NextResponse.json(
-        { error: `${field}: ${msg}` },
-        { status: 400 }
-      );
-    }
+  const firstIssue = issues[0];
+
+  if (!firstIssue) {
+    console.error("[register] empty issues array, raw body:", JSON.stringify(body, null, 2));
+    return NextResponse.json(
+      { error: "Invalid registration data." },
+      { status: 400 }
+    );
+  }
+
+  const field = firstIssue.path.length ? firstIssue.path.join(".") : "input";
+
+  return NextResponse.json(
+    { error: `${field}: ${firstIssue.message}` },
+    { status: 400 }
+  );
+}
 
     const {
       name, email, password,

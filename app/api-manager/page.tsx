@@ -55,26 +55,13 @@ export default function ApiManagerPage() {
   const [pageLoading, setPageLoading] = useState(true);
   const [message, setMessage] = useState("");
 
-  function getToken() {
-    return localStorage.getItem("token");
-  }
-
   async function fetchKeysAndRoles() {
-    const token = getToken();
-
-    if (!token) {
-      router.push("/auth/login");
-      return;
-    }
-
+    // ✅ Use credentials: "include" — no localStorage needed
     const keysRes = await fetch("/api/auth/keys", {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
+      credentials: "include",
     });
 
     if (keysRes.status === 401) {
-      localStorage.removeItem("token");
       router.push("/auth/login");
       return;
     }
@@ -83,22 +70,17 @@ export default function ApiManagerPage() {
     setKeys(keysData.keys || []);
 
     const rolesRes = await fetch("/api/models/roles", {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
+      credentials: "include",
     });
 
     const rolesData = await rolesRes.json();
     const loadedRoles = rolesData.roles || [];
-
     setRoleAssignments(loadedRoles);
 
     const nextRoleForm = { ...roleForm };
-
     loadedRoles.forEach((item: RoleAssignment) => {
       nextRoleForm[item.role] = item.provider;
     });
-
     setRoleForm(nextRoleForm);
     setPageLoading(false);
   }
@@ -109,35 +91,20 @@ export default function ApiManagerPage() {
 
   async function handleSaveKey(e: React.FormEvent) {
     e.preventDefault();
-
-    const token = getToken();
-
-    if (!token) {
-      router.push("/auth/login");
-      return;
-    }
-
     setLoading(true);
     setMessage("");
 
     try {
       const res = await fetch("/api/auth/keys", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          provider,
-          apiKey,
-        }),
+        headers: { "Content-Type": "application/json" },
+        credentials: "include", // ✅
+        body: JSON.stringify({ provider, apiKey }),
       });
 
       const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || "Failed to save API key");
-      }
+      if (res.status === 401) { router.push("/auth/login"); return; }
+      if (!res.ok) throw new Error(data.error || "Failed to save API key");
 
       setApiKey("");
       setMessage("API key saved successfully.");
@@ -150,45 +117,24 @@ export default function ApiManagerPage() {
   }
 
   async function handleDeleteKey(id: string) {
-  const token = getToken();
+    if (!confirm("Delete this API key? This cannot be undone.")) return;
 
-  if (!token) {
-    router.push("/auth/login");
-    return;
+    const res = await fetch("/api/auth/keys", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include", // ✅
+      body: JSON.stringify({ id }),
+    });
+
+    const data = await res.json();
+    if (res.status === 401) { router.push("/auth/login"); return; }
+    if (!res.ok) { setMessage(data.error || "Failed to delete API key."); return; }
+
+    setMessage("API key deleted.");
+    await fetchKeysAndRoles();
   }
-
-  const confirmed = confirm("Delete this API key? This cannot be undone.");
-
-  if (!confirmed) return;
-
-  const res = await fetch("/api/auth/keys", {
-    method: "DELETE",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({ id }),
-  });
-
-  const data = await res.json();
-
-  if (!res.ok) {
-    setMessage(data.error || "Failed to delete API key.");
-    return;
-  }
-
-  setMessage("API key deleted successfully.");
-  await fetchKeysAndRoles();
-}
 
   async function handleSaveRoles() {
-    const token = getToken();
-
-    if (!token) {
-      router.push("/auth/login");
-      return;
-    }
-
     setRoleLoading(true);
     setMessage("");
 
@@ -196,10 +142,8 @@ export default function ApiManagerPage() {
       for (const role of roles) {
         const res = await fetch("/api/models/roles", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
+          headers: { "Content-Type": "application/json" },
+          credentials: "include", // ✅
           body: JSON.stringify({
             role: role.value,
             provider: roleForm[role.value],
@@ -207,10 +151,8 @@ export default function ApiManagerPage() {
         });
 
         const data = await res.json();
-
-        if (!res.ok) {
-          throw new Error(data.error || `Failed to save ${role.label}`);
-        }
+        if (res.status === 401) { router.push("/auth/login"); return; }
+        if (!res.ok) throw new Error(data.error || `Failed to save ${role.label}`);
       }
 
       setMessage("Role assignments saved successfully.");
@@ -234,7 +176,6 @@ export default function ApiManagerPage() {
     <main className="min-h-screen bg-neutral-950 text-white">
       <nav className="flex items-center justify-between border-b border-neutral-800 px-8 py-5">
         <h1 className="text-2xl font-bold">API Manager</h1>
-
         <button
           onClick={() => router.push("/dashboard")}
           className="rounded-lg border border-neutral-700 px-4 py-2 text-sm hover:bg-neutral-900"
@@ -255,28 +196,20 @@ export default function ApiManagerPage() {
             className="mt-6 space-y-5 rounded-2xl border border-neutral-800 bg-neutral-900 p-6"
           >
             <div>
-              <label className="mb-2 block text-sm text-neutral-300">
-                Provider
-              </label>
-
+              <label className="mb-2 block text-sm text-neutral-300">Provider</label>
               <select
                 value={provider}
                 onChange={(e) => setProvider(e.target.value)}
                 className="w-full rounded-lg border border-neutral-700 bg-neutral-950 p-3 text-white"
               >
                 {providers.map((item) => (
-                  <option key={item.value} value={item.value}>
-                    {item.label}
-                  </option>
+                  <option key={item.value} value={item.value}>{item.label}</option>
                 ))}
               </select>
             </div>
 
             <div>
-              <label className="mb-2 block text-sm text-neutral-300">
-                API Key
-              </label>
-
+              <label className="mb-2 block text-sm text-neutral-300">API Key</label>
               <input
                 type="password"
                 value={apiKey}
@@ -286,9 +219,15 @@ export default function ApiManagerPage() {
               />
             </div>
 
+            {message && (
+              <p className={`text-sm ${message.includes("success") ? "text-green-400" : "text-red-400"}`}>
+                {message}
+              </p>
+            )}
+
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !apiKey.trim()}
               className="rounded-lg bg-white px-5 py-3 font-medium text-black hover:bg-neutral-200 disabled:opacity-60"
             >
               {loading ? "Saving..." : "Save API Key"}
@@ -297,7 +236,6 @@ export default function ApiManagerPage() {
 
           <div className="mt-8 rounded-2xl border border-neutral-800 bg-neutral-900 p-6">
             <h3 className="mb-4 text-xl font-semibold">Connected Providers</h3>
-
             {keys.length === 0 ? (
               <p className="text-neutral-400">No providers connected yet.</p>
             ) : (
@@ -313,16 +251,15 @@ export default function ApiManagerPage() {
                         Updated: {new Date(key.updated_at).toLocaleString()}
                       </p>
                     </div>
-
                     <span className="rounded-full bg-green-900 px-3 py-1 text-sm text-green-200">
                       {key.status}
                     </span>
                     <button
-  onClick={() => handleDeleteKey(key.id)}
-  className="rounded-lg border border-red-900 px-3 py-1.5 text-sm text-red-300 hover:bg-red-950"
->
-  Delete
-</button>
+                      onClick={() => handleDeleteKey(key.id)}
+                      className="rounded-lg border border-red-900 px-3 py-1.5 text-sm text-red-300 hover:bg-red-950"
+                    >
+                      Delete
+                    </button>
                   </div>
                 ))}
               </div>
@@ -339,30 +276,24 @@ export default function ApiManagerPage() {
           <div className="mt-6 space-y-5 rounded-2xl border border-neutral-800 bg-neutral-900 p-6">
             {roles.map((role) => (
               <div key={role.value}>
-                <label className="mb-2 block text-sm text-neutral-300">
-                  {role.label}
-                </label>
-
+                <label className="mb-2 block text-sm text-neutral-300">{role.label}</label>
                 <select
                   value={roleForm[role.value]}
-                  onChange={(e) =>
-                    setRoleForm((prev) => ({
-                      ...prev,
-                      [role.value]: e.target.value,
-                    }))
-                  }
+                  onChange={(e) => setRoleForm((prev) => ({ ...prev, [role.value]: e.target.value }))}
                   className="w-full rounded-lg border border-neutral-700 bg-neutral-950 p-3 text-white"
                 >
                   {providers.map((item) => (
-                    <option key={item.value} value={item.value}>
-                      {item.label}
-                    </option>
+                    <option key={item.value} value={item.value}>{item.label}</option>
                   ))}
                 </select>
               </div>
             ))}
 
-            {message && <p className="text-sm text-neutral-300">{message}</p>}
+            {message && (
+              <p className={`text-sm ${message.includes("success") ? "text-green-400" : "text-red-400"}`}>
+                {message}
+              </p>
+            )}
 
             <button
               type="button"
@@ -376,7 +307,6 @@ export default function ApiManagerPage() {
 
           <div className="mt-8 rounded-2xl border border-neutral-800 bg-neutral-900 p-6">
             <h3 className="mb-4 text-xl font-semibold">Current Assignments</h3>
-
             {roleAssignments.length === 0 ? (
               <p className="text-neutral-400">Using default assignments.</p>
             ) : (
@@ -387,9 +317,7 @@ export default function ApiManagerPage() {
                     className="flex items-center justify-between rounded-xl border border-neutral-800 bg-neutral-950 p-4"
                   >
                     <p className="font-medium capitalize">{item.role}</p>
-                    <p className="text-sm text-neutral-400 capitalize">
-                      {item.provider}
-                    </p>
+                    <p className="text-sm text-neutral-400 capitalize">{item.provider}</p>
                   </div>
                 ))}
               </div>

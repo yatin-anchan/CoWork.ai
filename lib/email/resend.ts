@@ -1,6 +1,14 @@
-import { Resend } from "resend";
+import nodemailer from "nodemailer";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: process.env.GMAIL_USER,
+    pass: process.env.GMAIL_APP_PASSWORD,
+  },
+});
+
+const FROM = `"CoWork AI" <${process.env.GMAIL_USER}>`;
 const APP_URL = process.env.APP_URL || "http://localhost:3000";
 
 export async function sendInviteEmail({
@@ -18,8 +26,8 @@ export async function sendInviteEmail({
 }) {
   const inviteUrl = `${APP_URL}/invites/${token}`;
 
-  await resend.emails.send({
-    from: "CoWork AI <onboarding@resend.dev>",
+  await transporter.sendMail({
+    from: FROM,
     to,
     subject: "You've been invited to CoWork AI",
     html: `
@@ -43,7 +51,7 @@ export async function sendInviteEmail({
       </div>
     `,
   });
-} // ← sendInviteEmail closes here
+}
 
 export async function sendPasswordResetEmail({
   to,
@@ -54,14 +62,14 @@ export async function sendPasswordResetEmail({
   name: string;
   resetLink: string;
 }) {
-  if (!process.env.RESEND_API_KEY) {
-    console.warn("[email] RESEND_API_KEY missing. Skipping password reset email.");
+  if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
+    console.warn("[email] Gmail credentials missing. Skipping password reset email.");
     console.log(`RESET LINK: ${resetLink}`);
     return;
   }
 
-  await resend.emails.send({
-    from: "CoWork AI <onboarding@resend.dev>",
+  await transporter.sendMail({
+    from: FROM,
     to,
     subject: "Reset your CoWork AI password",
     html: `

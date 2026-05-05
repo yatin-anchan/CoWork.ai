@@ -1376,8 +1376,12 @@ export default function ProjectChatPage() {
             {sidebarOpen ? <X size={17} /> : <Menu size={17} />}
           </button>
           <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-            <button onClick={() => router.push("/settings")} className="cw-icon-btn" title="Profile"><User size={17} /></button>
-            <button onClick={() => router.push("/settings")} className="cw-icon-btn" title="Settings"><Settings size={17} /></button>
+            <button onClick={() => router.push("/profile")} className="cw-icon-btn" title="Profile">
+  <User size={17} />
+</button>
+<button onClick={() => router.push("/settings")} className="cw-icon-btn" title="Settings">
+  <Settings size={17} />
+</button>
           </div>
         </aside>
 

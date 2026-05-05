@@ -1717,8 +1717,6 @@ function WorkflowSection({ dark }: ThemeProps) {
 
   return (
     <section
-      id="workflow"
-      ref={sectionRef}
       style={{ position: "relative", zIndex: 1, padding: "90px 24px" }}
     >
       <div style={{ maxWidth: 920, margin: "0 auto" }}>
@@ -1804,6 +1802,8 @@ function WorkflowSection({ dark }: ThemeProps) {
           />
           Scroll to step through
         </p>
+        <section  id="workflow"
+      ref={sectionRef}>
 
         {/* ── Step cards ── */}
         <div style={{ display: "grid", gap: 14, position: "relative" }}>
@@ -1936,7 +1936,7 @@ function WorkflowSection({ dark }: ThemeProps) {
               />
             ))}
           </div>
-        )}
+        )}</section>
       </div>
     </section>
   );

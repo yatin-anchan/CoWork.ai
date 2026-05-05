@@ -3,9 +3,10 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
-export default function LoginPage() {
+export default function RegisterPage() {
   const router = useRouter();
 
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -13,6 +14,7 @@ export default function LoginPage() {
   const [checking, setChecking] = useState(true);
   const [error, setError] = useState("");
 
+  // Redirect if already logged in
   useEffect(() => {
     fetch("/api/auth/me")
       .then((res) => {
@@ -21,11 +23,15 @@ export default function LoginPage() {
       .finally(() => setChecking(false));
   }, [router]);
 
-  async function handleLogin(e: React.FormEvent) {
+  async function handleRegister(e: React.FormEvent) {
     e.preventDefault();
 
-    if (!email.trim() || !password.trim()) {
-      setError("Email and password are required.");
+    if (!name.trim() || !email.trim() || !password.trim()) {
+      setError("All fields are required.");
+      return;
+    }
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters.");
       return;
     }
 
@@ -33,10 +39,12 @@ export default function LoginPage() {
     setError("");
 
     try {
-      const res = await fetch("/api/auth/login", {
+      const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        // ✅ No localStorage — cookie is set by server automatically
         body: JSON.stringify({
+          name: name.trim(),
           email: email.trim().toLowerCase(),
           password,
         }),
@@ -45,7 +53,7 @@ export default function LoginPage() {
       const data = await res.json().catch(() => ({} as { error?: string }));
 
       if (!res.ok) {
-        throw new Error(data.error || "Login failed. Please try again.");
+        throw new Error(data.error || "Registration failed. Please try again.");
       }
 
       router.push("/dashboard");
@@ -66,6 +74,7 @@ export default function LoginPage() {
 
   return (
     <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#020617] px-4 text-white">
+      {/* Background */}
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_10%,rgba(79,70,229,0.26),transparent_32%),radial-gradient(circle_at_80%_20%,rgba(14,165,233,0.14),transparent_30%),linear-gradient(180deg,#020617_0%,#050816_46%,#020617_100%)]" />
       <div className="pointer-events-none absolute inset-0 opacity-[0.16] [background-image:linear-gradient(rgba(255,255,255,0.07)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.07)_1px,transparent_1px)] [background-size:56px_56px] [mask-image:linear-gradient(to_bottom,black,transparent_85%)]" />
 
@@ -87,18 +96,18 @@ export default function LoginPage() {
               Multi-model workspace
             </p>
             <h1 className="text-4xl font-black leading-tight tracking-tight">
-              Continue building with your AI team.
+              Build with your AI team from day one.
             </h1>
             <p className="mt-5 text-sm leading-7 text-slate-400">
-              Access your projects, chats, model routing, team collaboration,
-              and persistent project memory from one secure workspace.
+              Create your workspace, connect your AI providers, and start
+              building with persistent project memory and multi-model routing.
             </p>
             <div className="mt-10 space-y-4 text-sm text-slate-300">
               {[
-                "Project memory and instructions",
-                "Multi-chat workflows",
+                "Free to get started",
+                "Bring your own API keys",
+                "Multi-chat project workflows",
                 "Team Mode with role-based models",
-                "Encrypted API key storage",
               ].map((item) => (
                 <div key={item} className="flex items-center gap-3">
                   <span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-500/15 text-xs text-indigo-300">
@@ -111,8 +120,9 @@ export default function LoginPage() {
           </div>
         </div>
 
-        {/* Right panel */}
-        <form onSubmit={handleLogin} className="p-7 sm:p-10">
+        {/* Right panel — form */}
+        <form onSubmit={handleRegister} className="p-7 sm:p-10">
+          {/* Mobile logo */}
           <div className="mb-8 md:hidden">
             <a href="/" className="flex items-center gap-3 no-underline">
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600">
@@ -125,9 +135,9 @@ export default function LoginPage() {
           </div>
 
           <div>
-            <h2 className="text-2xl font-black tracking-tight">Welcome back</h2>
+            <h2 className="text-2xl font-black tracking-tight">Create your account</h2>
             <p className="mt-2 text-sm text-slate-400">
-              Sign in to continue to your workspace.
+              Free forever. No credit card required.
             </p>
           </div>
 
@@ -138,15 +148,30 @@ export default function LoginPage() {
           )}
 
           <div className="mt-7 space-y-5">
+            {/* Name */}
+            <label className="block">
+              <span className="mb-2 block text-sm font-semibold text-slate-300">
+                Full Name
+              </span>
+              <input
+                type="text"
+                placeholder="Your name"
+                autoFocus
+                className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-indigo-400/60 focus:ring-4 focus:ring-indigo-500/10"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                autoComplete="name"
+              />
+            </label>
+
             {/* Email */}
             <label className="block">
               <span className="mb-2 block text-sm font-semibold text-slate-300">
-                Email
+                Email Address
               </span>
               <input
                 type="email"
                 placeholder="you@example.com"
-                autoFocus
                 className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-indigo-400/60 focus:ring-4 focus:ring-indigo-500/10"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -156,25 +181,17 @@ export default function LoginPage() {
 
             {/* Password */}
             <label className="block">
-              <div className="mb-2 flex items-center justify-between">
-                <span className="text-sm font-semibold text-slate-300">
-                  Password
-                </span>
-                <a
-                  href="/auth/forgot-password"
-                  className="text-xs font-semibold text-indigo-300 hover:text-indigo-200"
-                >
-                  Forgot password?
-                </a>
-              </div>
+              <span className="mb-2 block text-sm font-semibold text-slate-300">
+                Password
+              </span>
               <div className="relative">
                 <input
                   type={showPassword ? "text" : "password"}
-                  placeholder="Enter your password"
+                  placeholder="Min 8 characters"
                   className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 py-3 pr-20 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-indigo-400/60 focus:ring-4 focus:ring-indigo-500/10"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  autoComplete="current-password"
+                  autoComplete="new-password"
                 />
                 <button
                   type="button"
@@ -192,16 +209,20 @@ export default function LoginPage() {
             disabled={loading}
             className="mt-7 flex w-full items-center justify-center rounded-xl bg-white px-4 py-3 text-sm font-bold text-slate-950 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {loading ? "Signing in..." : "Sign in"}
+            {loading ? "Creating account..." : "Create account"}
           </button>
 
-          <p className="mt-6 text-center text-sm text-slate-400">
-            Don't have an account?{" "}
-            <a
-              href="/auth/register"
-              className="font-semibold text-indigo-300 hover:text-indigo-200"
-            >
-              Create one
+          <p className="mt-4 text-center text-xs text-slate-500">
+            By creating an account you agree to our{" "}
+            <a href="/terms" className="text-indigo-300 hover:text-indigo-200">Terms</a>
+            {" "}and{" "}
+            <a href="/privacy" className="text-indigo-300 hover:text-indigo-200">Privacy Policy</a>.
+          </p>
+
+          <p className="mt-5 text-center text-sm text-slate-400">
+            Already have an account?{" "}
+            <a href="/auth/login" className="font-semibold text-indigo-300 hover:text-indigo-200">
+              Sign in
             </a>
           </p>
         </form>

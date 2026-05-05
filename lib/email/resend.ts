@@ -25,7 +25,7 @@ const baseTemplate = (content: string) => `
         <td align="center">
           <table width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;">
 
-            <!-- Logo / Header -->
+            <!-- Logo -->
             <tr>
               <td align="center" style="padding-bottom: 28px;">
                 <table cellpadding="0" cellspacing="0">
@@ -34,10 +34,9 @@ const baseTemplate = (content: string) => `
                       <div style="
                         width:38px; height:38px; border-radius:10px;
                         background:linear-gradient(135deg,#4f46e5,#8b5cf6);
-                        display:inline-flex; align-items:center; justify-content:center;
                         text-align:center; line-height:38px;
                         box-shadow:0 12px 30px rgba(79,70,229,0.35);
-                        vertical-align:middle;
+                        display:inline-block; vertical-align:middle;
                       ">
                         <span style="color:#fff; font-size:20px; font-weight:900; line-height:38px;">⬡</span>
                       </div>
@@ -84,6 +83,93 @@ const baseTemplate = (content: string) => `
   </html>
 `;
 
+// ── Welcome Email ────────────────────────────────────────────────────────────
+
+export async function sendWelcomeEmail({
+  to,
+  name,
+}: {
+  to: string;
+  name: string;
+}) {
+  const onboardingUrl = `${APP_URL}/onboarding`;
+
+  const content = `
+    <p style="margin:0 0 22px; text-align:center;">
+      <span style="
+        display:inline-block; padding:6px 14px; border-radius:999px;
+        background:rgba(79,70,229,0.14); border:1px solid rgba(139,92,246,0.28);
+        color:#c4b5fd; font-size:12px; font-weight:800; letter-spacing:0.08em;
+      ">🎉 WELCOME TO COWORK AI</span>
+    </p>
+
+    <h1 style="
+      margin:0 0 16px; text-align:center;
+      color:#f8fafc; font-size:28px; font-weight:900;
+      line-height:1.1; letter-spacing:-0.04em;
+    ">You're in, ${name}!</h1>
+
+    <p style="color:#94a3b8; font-size:15px; line-height:1.75; margin:0 0 28px; text-align:center;">
+      Your CoWork AI workspace is ready. Connect your AI providers,
+      create your first project, and start building with your AI team.
+    </p>
+
+    <table width="100%" cellpadding="0" cellspacing="0">
+      <tr>
+        <td align="center" style="padding-bottom:28px;">
+          <a href="${onboardingUrl}" style="
+            display:inline-block;
+            padding:14px 32px;
+            border-radius:12px;
+            background:linear-gradient(135deg,#4f46e5,#7c3aed);
+            color:#fff;
+            font-size:15px;
+            font-weight:800;
+            text-decoration:none;
+            letter-spacing:-0.01em;
+            box-shadow:0 12px 36px rgba(79,70,229,0.35);
+          ">Set up your workspace →</a>
+        </td>
+      </tr>
+    </table>
+
+    <div style="border-top:1px solid rgba(148,163,184,0.12); margin-bottom:20px;"></div>
+
+    <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
+      <tr>
+        <td style="padding:10px; text-align:center; width:33%;">
+          <div style="font-size:22px; margin-bottom:6px;">🧠</div>
+          <div style="color:#e2e8f0; font-size:12px; font-weight:700;">Multi-model routing</div>
+          <div style="color:#64748b; font-size:11px; margin-top:3px;">Reasoning, execution, review</div>
+        </td>
+        <td style="padding:10px; text-align:center; width:33%;">
+          <div style="font-size:22px; margin-bottom:6px;">💾</div>
+          <div style="color:#e2e8f0; font-size:12px; font-weight:700;">Project memory</div>
+          <div style="color:#64748b; font-size:11px; margin-top:3px;">Context across all chats</div>
+        </td>
+        <td style="padding:10px; text-align:center; width:33%;">
+          <div style="font-size:22px; margin-bottom:6px;">👥</div>
+          <div style="color:#e2e8f0; font-size:12px; font-weight:700;">Team collaboration</div>
+          <div style="color:#64748b; font-size:11px; margin-top:3px;">Invite & manage members</div>
+        </td>
+      </tr>
+    </table>
+
+    <p style="color:#475569; font-size:12px; margin:0; text-align:center; line-height:1.7;">
+      Or copy this link: <a href="${onboardingUrl}" style="color:#6d6aff;">${onboardingUrl}</a>
+    </p>
+  `;
+
+  await transporter.sendMail({
+    from: FROM,
+    to,
+    subject: `Welcome to CoWork AI, ${name}! 🎉`,
+    html: baseTemplate(content),
+  });
+}
+
+// ── Invite Email ─────────────────────────────────────────────────────────────
+
 export async function sendInviteEmail({
   to,
   inviterEmail,
@@ -100,7 +186,6 @@ export async function sendInviteEmail({
   const inviteUrl = `${APP_URL}/invites/${token}`;
 
   const content = `
-    <!-- Eyebrow badge -->
     <p style="margin:0 0 22px; text-align:center;">
       <span style="
         display:inline-block; padding:6px 14px; border-radius:999px;
@@ -109,14 +194,12 @@ export async function sendInviteEmail({
       ">⚡ PROJECT INVITATION</span>
     </p>
 
-    <!-- Title -->
     <h1 style="
       margin:0 0 16px; text-align:center;
       color:#f8fafc; font-size:28px; font-weight:900;
       line-height:1.1; letter-spacing:-0.04em;
     ">You're invited to collaborate</h1>
 
-    <!-- Body -->
     <p style="color:#94a3b8; font-size:15px; line-height:1.75; margin:0 0 28px; text-align:center;">
       <span style="color:#e2e8f0; font-weight:700;">${inviterEmail}</span>
       has invited you to join
@@ -129,35 +212,25 @@ export async function sendInviteEmail({
       ">${role}</span>
     </p>
 
-    <!-- CTA Button -->
     <table width="100%" cellpadding="0" cellspacing="0">
       <tr>
         <td align="center" style="padding-bottom:28px;">
           <a href="${inviteUrl}" style="
-            display:inline-block;
-            padding:14px 32px;
-            border-radius:12px;
-            background:linear-gradient(135deg,#4f46e5,#7c3aed);
-            color:#fff;
-            font-size:15px;
-            font-weight:800;
-            text-decoration:none;
-            letter-spacing:-0.01em;
+            display:inline-block; padding:14px 32px; border-radius:12px;
+            background:linear-gradient(135deg,#4f46e5,#7c3aed); color:#fff;
+            font-size:15px; font-weight:800; text-decoration:none;
             box-shadow:0 12px 36px rgba(79,70,229,0.35);
           ">Accept Invite →</a>
         </td>
       </tr>
     </table>
 
-    <!-- Divider -->
     <div style="border-top:1px solid rgba(148,163,184,0.12); margin-bottom:20px;"></div>
 
-    <!-- Fallback link -->
     <p style="color:#475569; font-size:12px; margin:0; text-align:center; line-height:1.7;">
-      Or copy this link into your browser:<br/>
+      Or copy this link:<br/>
       <a href="${inviteUrl}" style="color:#6d6aff; word-break:break-all;">${inviteUrl}</a>
     </p>
-
     <p style="color:#334155; font-size:12px; margin:16px 0 0; text-align:center;">
       If you weren't expecting this invite, you can safely ignore this email.
     </p>
@@ -170,6 +243,8 @@ export async function sendInviteEmail({
     html: baseTemplate(content),
   });
 }
+
+// ── Password Reset Email ─────────────────────────────────────────────────────
 
 export async function sendPasswordResetEmail({
   to,
@@ -187,7 +262,6 @@ export async function sendPasswordResetEmail({
   }
 
   const content = `
-    <!-- Eyebrow badge -->
     <p style="margin:0 0 22px; text-align:center;">
       <span style="
         display:inline-block; padding:6px 14px; border-radius:999px;
@@ -196,14 +270,12 @@ export async function sendPasswordResetEmail({
       ">🔒 PASSWORD RESET</span>
     </p>
 
-    <!-- Title -->
     <h1 style="
       margin:0 0 16px; text-align:center;
       color:#f8fafc; font-size:28px; font-weight:900;
       line-height:1.1; letter-spacing:-0.04em;
     ">Reset your password</h1>
 
-    <!-- Body -->
     <p style="color:#94a3b8; font-size:15px; line-height:1.75; margin:0 0 28px; text-align:center;">
       Hi <span style="color:#e2e8f0; font-weight:700;">${name}</span>, use the button below
       to reset your CoWork AI password.<br/>
@@ -214,35 +286,25 @@ export async function sendPasswordResetEmail({
       ">⏱ This link expires in 30 minutes</span>
     </p>
 
-    <!-- CTA Button -->
     <table width="100%" cellpadding="0" cellspacing="0">
       <tr>
         <td align="center" style="padding-bottom:28px;">
           <a href="${resetLink}" style="
-            display:inline-block;
-            padding:14px 32px;
-            border-radius:12px;
-            background:linear-gradient(135deg,#4f46e5,#7c3aed);
-            color:#fff;
-            font-size:15px;
-            font-weight:800;
-            text-decoration:none;
-            letter-spacing:-0.01em;
+            display:inline-block; padding:14px 32px; border-radius:12px;
+            background:linear-gradient(135deg,#4f46e5,#7c3aed); color:#fff;
+            font-size:15px; font-weight:800; text-decoration:none;
             box-shadow:0 12px 36px rgba(79,70,229,0.35);
           ">Reset password →</a>
         </td>
       </tr>
     </table>
 
-    <!-- Divider -->
     <div style="border-top:1px solid rgba(148,163,184,0.12); margin-bottom:20px;"></div>
 
-    <!-- Fallback link -->
     <p style="color:#475569; font-size:12px; margin:0; text-align:center; line-height:1.7;">
-      If the button doesn't work, copy this link into your browser:<br/>
+      If the button doesn't work, copy this link:<br/>
       <span style="color:#6d6aff; word-break:break-all;">${resetLink}</span>
     </p>
-
     <p style="color:#334155; font-size:12px; margin:16px 0 0; text-align:center;">
       If you didn't request a password reset, you can safely ignore this email.
     </p>

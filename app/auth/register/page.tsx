@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import {useEffect } from "react";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -16,6 +17,15 @@ const [mobileNumber, setMobileNumber] = useState("");
 const [country, setCountry] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [checking, setChecking] = useState(true);
+
+  useEffect(() => {
+  fetch("/api/auth/me")
+    .then((res) => {
+      if (res.ok) router.replace("/dashboard");
+    })
+    .finally(() => setChecking(false));
+}, [router]);
 
   async function handleRegister(e: React.FormEvent) {
     e.preventDefault();
@@ -55,6 +65,14 @@ const [country, setCountry] = useState("");
       setLoading(false);
     }
   }
+
+  if (checking) {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-[#020617]">
+      <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/10 border-t-violet-500" />
+    </main>
+  );
+}
 
   return (
     <div className="flex min-h-screen items-center justify-center">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 export default function LoginPage() {
@@ -10,7 +10,16 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [checking, setChecking] = useState(true);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((res) => {
+        if (res.ok) router.replace("/dashboard");
+      })
+      .finally(() => setChecking(false));
+  }, [router]);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -39,13 +48,20 @@ export default function LoginPage() {
         throw new Error(data.error || "Login failed. Please try again.");
       }
 
-      // No localStorage — token is set as httpOnly cookie by the server
       router.push("/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
       setLoading(false);
     }
+  }
+
+  if (checking) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#020617]">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/10 border-t-violet-500" />
+      </main>
+    );
   }
 
   return (
@@ -122,6 +138,7 @@ export default function LoginPage() {
           )}
 
           <div className="mt-7 space-y-5">
+            {/* Email */}
             <label className="block">
               <span className="mb-2 block text-sm font-semibold text-slate-300">
                 Email
@@ -137,6 +154,7 @@ export default function LoginPage() {
               />
             </label>
 
+            {/* Password */}
             <label className="block">
               <div className="mb-2 flex items-center justify-between">
                 <span className="text-sm font-semibold text-slate-300">
@@ -181,7 +199,8 @@ export default function LoginPage() {
             Don't have an account?{" "}
             <a
               href="/auth/register"
-              className="font-semibold text-indigo-300 hover:text-indigo-200">
+              className="font-semibold text-indigo-300 hover:text-indigo-200"
+            >
               Create one
             </a>
           </p>

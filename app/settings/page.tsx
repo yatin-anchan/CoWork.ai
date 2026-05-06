@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
   Settings,
@@ -14,8 +14,11 @@ import {
   Globe,
   Save,
   Check,
+  Loader2,
+  Lock,
 } from "lucide-react";
 
+// ─── Styles ──────────────────────────────────────────────────────────────────
 const themeStyles = `
   @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:wght@300;400;500&display=swap');
 
@@ -92,15 +95,31 @@ const themeStyles = `
   .cw-toggle::after { content: ''; position: absolute; top: 2px; left: 2px; width: 17px; height: 17px; background: #fff; border-radius: 50%; transition: transform 0.3s var(--spring); }
   .cw-toggle.on::after { transform: translateX(19px); }
 
+  /* Locked "Always On" badge */
+  .cw-badge-on {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 10px; border-radius: 99px; font-size: 11px; font-weight: 600;
+    background: rgba(52,211,153,0.12); border: 1px solid rgba(52,211,153,0.3);
+    color: #34d399; white-space: nowrap;
+  }
+  .cw-locked-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 0; border-bottom: 1px solid var(--b-soft);
+  }
+  .cw-locked-row:last-child { border-bottom: none; padding-bottom: 0; }
+  .cw-locked-note {
+    margin-top: 14px; padding: 12px 14px;
+    background: rgba(77,159,255,0.06); border: 1px solid var(--b-glow2);
+    border-radius: 10px; font-size: 12px; color: var(--t2);
+    display: flex; align-items: flex-start; gap: 8px; line-height: 1.5;
+  }
+
   .cw-select { width: 100%; padding: 9px 12px; background: var(--bg-i); border: 1px solid var(--b-soft); border-radius: 10px; color: var(--t1); font-family: 'DM Sans',sans-serif; font-size: 13px; outline: none; cursor: pointer; transition: border-color 0.2s; margin-top: 7px; }
   .cw-select:focus { border-color: var(--b-glow); }
 
-  .cw-input { width: 100%; padding: 9px 12px; background: var(--bg-i); border: 1px solid var(--b-soft); border-radius: 10px; color: var(--t1); font-family: 'DM Sans',sans-serif; font-size: 13px; outline: none; transition: border-color 0.2s, box-shadow 0.2s; box-sizing: border-box; margin-top: 7px; }
-  .cw-input:focus { border-color: var(--b-glow); box-shadow: 0 0 0 3px var(--b-glow2); }
-  .cw-label { font-size: 11.5px; font-weight: 600; color: var(--t2); letter-spacing: 0.3px; margin-top: 12px; display: block; }
-
   .cw-btn-primary { display: inline-flex; align-items: center; gap: 7px; padding: 9px 18px; border-radius: 10px; border: none; background: var(--btn-bg); color: var(--btn-fg); font-family: 'DM Sans',sans-serif; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.25s var(--spring); }
-  .cw-btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.18); }
+  .cw-btn-primary:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.18); }
+  .cw-btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
 
   .cw-theme-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
   .cw-theme-option { padding: 14px; border-radius: 13px; border: 2px solid var(--b-soft); cursor: pointer; transition: all 0.2s; text-align: center; }
@@ -114,7 +133,12 @@ const themeStyles = `
   .cw-color-swatch:hover { transform: scale(1.12); }
   .cw-color-swatch.selected { border-color: var(--t1); transform: scale(1.12); }
 
-  .cw-success-toast { display: flex; align-items: center; gap: 7px; padding: 10px 14px; border-radius: 10px; border: 1px solid rgba(52,211,153,0.28); background: rgba(52,211,153,0.09); color: #34d399; font-size: 12.5px; margin-bottom: 14px; }
+  .cw-toast { display: flex; align-items: center; gap: 7px; padding: 10px 14px; border-radius: 10px; font-size: 12.5px; margin-bottom: 14px; }
+  .cw-toast.success { border: 1px solid rgba(52,211,153,0.28); background: rgba(52,211,153,0.09); color: #34d399; }
+  .cw-toast.error { border: 1px solid rgba(239,68,68,0.28); background: rgba(239,68,68,0.09); color: #f87171; }
+
+  .cw-skeleton { background: var(--bg-i); border-radius: 8px; animation: cwSkeleton 1.4s ease-in-out infinite; }
+  @keyframes cwSkeleton { 0%,100% { opacity:0.5; } 50% { opacity:1; } }
 
   @keyframes cwFadeUp { from { opacity:0; transform:translateY(18px); } to { opacity:1; transform:translateY(0); } }
   .cw-fade-up { animation: cwFadeUp 0.5s var(--ease) both; }
@@ -127,97 +151,136 @@ const themeStyles = `
   }
 `;
 
-type Section = "appearance" | "notifications" | "privacy" | "integrations" | "workspace";
+type Section = "appearance" | "notifications" | "integrations";
 
 const navItems: { id: Section; icon: React.ReactNode; label: string; group: string }[] = [
-  { id: "appearance", icon: <Palette size={14} />, label: "Appearance", group: "General" },
-  { id: "notifications", icon: <Bell size={14} />, label: "Notifications", group: "General" },
-  { id: "workspace", icon: <Globe size={14} />, label: "Workspace", group: "General" },
-  { id: "privacy", icon: <Shield size={14} />, label: "Privacy", group: "Advanced" },
-  { id: "integrations", icon: <Zap size={14} />, label: "Integrations", group: "Advanced" },
+  { id: "appearance",    icon: <Palette size={14} />, label: "Appearance",    group: "General"  },
+  { id: "notifications", icon: <Bell size={14} />,    label: "Notifications", group: "General"  },
+  { id: "integrations",  icon: <Zap size={14} />,     label: "Integrations",  group: "Advanced" },
 ];
 
-const accentColors = [
-  "#4D9FFF", "#8b5cf6", "#34d399", "#f59e0b", "#f472b6", "#60a5fa",
-];
+const accentColors = ["#4D9FFF", "#8b5cf6", "#34d399", "#f59e0b", "#f472b6", "#60a5fa"];
+
+const SETTINGS_CHANNEL = "cw-settings-sync";
 
 export default function SettingsPage() {
   const router = useRouter();
-  const [isDark, setIsDark] = useState(true);
+
+  const [isDark, setIsDark]               = useState(true);
   const [activeSection, setActiveSection] = useState<Section>("appearance");
-  const [saved, setSaved] = useState(false);
+  const [loading, setLoading]             = useState(true);
+  const [saving, setSaving]               = useState(false);
+  const [toast, setToast]                 = useState<{ type: "success" | "error"; msg: string } | null>(null);
 
-  // Appearance
-  const [theme, setTheme] = useState<"dark" | "light" | "system">("dark");
-  const [accentColor, setAccentColor] = useState("#4D9FFF");
-  const [fontSize, setFontSize] = useState("14");
-  const [reduceMotion, setReduceMotion] = useState(false);
-
-  // Notifications
-  const [emailNotifs, setEmailNotifs] = useState(true);
-  const [inviteNotifs, setInviteNotifs] = useState(true);
-  const [projectUpdates, setProjectUpdates] = useState(false);
+  // ── Only the 3 real DB columns ──────────────────────────────────────────────
+  const [theme, setTheme]               = useState<"dark" | "light" | "system">("dark");
+  const [accentColor, setAccentColor]   = useState("#4D9FFF");
   const [weeklyDigest, setWeeklyDigest] = useState(false);
 
-  // Workspace
-  const [defaultVisibility, setDefaultVisibility] = useState("public");
-  const [autoSave, setAutoSave] = useState(true);
-  const [sendOnEnter, setSendOnEnter] = useState(true);
-  const [defaultRole, setDefaultRole] = useState("reasoning");
-  const [workspaceName, setWorkspaceName] = useState("My Workspace");
+  // ── Helpers ─────────────────────────────────────────────────────────────────
+  function applyTheme(t: string) {
+    const dark = t === "dark" || (t === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    setIsDark(dark);
+  }
 
-  // Privacy
-  const [shareUsage, setShareUsage] = useState(true);
-  const [publicProfile, setPublicProfile] = useState(false);
+  function applyAccent(color: string) {
+    document.documentElement.style.setProperty("--accent", color);
+    document.documentElement.style.setProperty("--ag",     color + "28");
+    document.documentElement.style.setProperty("--b-glow", color + "6a");
+    document.documentElement.style.setProperty("--b-glow2",color + "28");
+  }
 
+  function showToast(type: "success" | "error", msg: string) {
+    setToast({ type, msg });
+    setTimeout(() => setToast(null), 2800);
+  }
+
+  // ── Load ────────────────────────────────────────────────────────────────────
   useEffect(() => {
-    fetch("/api/auth/me", { credentials: "include" }).then((res) => {
-      if (!res.ok) router.replace("/auth/login");
-    });
-    // Load saved settings from localStorage
-    const saved = localStorage.getItem("cw-settings");
-    if (saved) {
+    async function load() {
       try {
-        const s = JSON.parse(saved);
-        if (s.theme) setTheme(s.theme);
-        if (s.accentColor) setAccentColor(s.accentColor);
-        if (s.fontSize) setFontSize(s.fontSize);
-        if (s.reduceMotion !== undefined) setReduceMotion(s.reduceMotion);
-        if (s.emailNotifs !== undefined) setEmailNotifs(s.emailNotifs);
-        if (s.inviteNotifs !== undefined) setInviteNotifs(s.inviteNotifs);
-        if (s.projectUpdates !== undefined) setProjectUpdates(s.projectUpdates);
-        if (s.weeklyDigest !== undefined) setWeeklyDigest(s.weeklyDigest);
-        if (s.defaultVisibility) setDefaultVisibility(s.defaultVisibility);
-        if (s.autoSave !== undefined) setAutoSave(s.autoSave);
-        if (s.sendOnEnter !== undefined) setSendOnEnter(s.sendOnEnter);
-        if (s.defaultRole) setDefaultRole(s.defaultRole);
-        if (s.workspaceName) setWorkspaceName(s.workspaceName);
-        if (s.shareUsage !== undefined) setShareUsage(s.shareUsage);
-        if (s.publicProfile !== undefined) setPublicProfile(s.publicProfile);
-      } catch {}
+        const res = await fetch("/api/settings", { credentials: "include" });
+        if (res.status === 401) { router.replace("/auth/login"); return; }
+        if (!res.ok) throw new Error();
+
+        const { settings: s } = await res.json();
+        setTheme(s.theme ?? "dark");
+        setAccentColor(s.accent_color ?? "#4D9FFF");
+        setWeeklyDigest(s.weekly_digest ?? false);
+        applyTheme(s.theme ?? "dark");
+        applyAccent(s.accent_color ?? "#4D9FFF");
+      } catch {
+        showToast("error", "Could not load your settings.");
+      } finally {
+        setLoading(false);
+      }
     }
+    load();
   }, [router]);
 
-  function saveSettings() {
-    const settings = {
-      theme, accentColor, fontSize, reduceMotion,
-      emailNotifs, inviteNotifs, projectUpdates, weeklyDigest,
-      defaultVisibility, autoSave, sendOnEnter, defaultRole, workspaceName,
-      shareUsage, publicProfile,
+  // ── Cross-tab sync ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (typeof window === "undefined" || !("BroadcastChannel" in window)) return;
+    const channel = new BroadcastChannel(SETTINGS_CHANNEL);
+    channel.onmessage = (e) => {
+      const s = e.data;
+      if (!s) return;
+      setTheme(s.theme);
+      setAccentColor(s.accent_color);
+      setWeeklyDigest(s.weekly_digest);
+      applyTheme(s.theme);
+      applyAccent(s.accent_color);
     };
-    localStorage.setItem("cw-settings", JSON.stringify(settings));
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
-    if (theme === "dark") setIsDark(true);
-    if (theme === "light") setIsDark(false);
-  }
+    return () => channel.close();
+  }, []);
+
+  // ── Live previews ───────────────────────────────────────────────────────────
+  useEffect(() => { applyAccent(accentColor); }, [accentColor]);
+  useEffect(() => { applyTheme(theme); },       [theme]);
+
+  // ── Save ────────────────────────────────────────────────────────────────────
+  const saveSettings = useCallback(async () => {
+    setSaving(true);
+    const payload = { theme, accent_color: accentColor, weekly_digest: weeklyDigest };
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error();
+      showToast("success", "Settings saved successfully.");
+      if (typeof window !== "undefined" && "BroadcastChannel" in window) {
+        const ch = new BroadcastChannel(SETTINGS_CHANNEL);
+        ch.postMessage(payload);
+        ch.close();
+      }
+    } catch {
+      showToast("error", "Failed to save settings. Please try again.");
+    } finally {
+      setSaving(false);
+    }
+  }, [theme, accentColor, weeklyDigest]);
 
   const themeClass = isDark ? "cw-dark" : "cw-light";
   const groups = ["General", "Advanced"];
 
+  const SaveBtn = ({ label }: { label: string }) => (
+    <div style={{ display: "flex", justifyContent: "flex-end" }}>
+      <button onClick={saveSettings} disabled={saving} className="cw-btn-primary">
+        {saving
+          ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} />
+          : <Save size={14} />}
+        {saving ? "Saving…" : label}
+      </button>
+    </div>
+  );
+
   return (
     <div className={`cw-root ${themeClass}`}>
-      <style>{themeStyles}</style>
+      <style>{`${themeStyles}
+        @keyframes spin { to { transform: rotate(360deg); } }`}</style>
       <div className="cw-ambient">
         <div className="cw-orb cw-orb1" /><div className="cw-orb cw-orb2" />
       </div>
@@ -232,10 +295,19 @@ export default function SettingsPage() {
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <button onClick={() => router.back()} className="cw-nav-btn"><ArrowLeft size={13} /><span>Back</span></button>
-          <button className="cw-theme-toggle" onClick={() => setIsDark(!isDark)}>
+          <button onClick={() => router.back()} className="cw-nav-btn">
+            <ArrowLeft size={13} /><span>Back</span>
+          </button>
+          <button
+            className="cw-theme-toggle"
+            onClick={() => {
+              const next = isDark ? "light" : "dark";
+              setTheme(next);
+              setIsDark(!isDark);
+            }}
+          >
             <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 5px", pointerEvents: "none" }}>
-              <Sun size={11} style={{ color: isDark ? "rgba(134,134,172,0.4)" : "#f59e0b" }} />
+              <Sun  size={11} style={{ color: isDark ? "rgba(134,134,172,0.4)" : "#f59e0b" }} />
               <Moon size={11} style={{ color: isDark ? "#9292b8" : "rgba(80,80,129,0.35)" }} />
             </div>
           </button>
@@ -243,7 +315,7 @@ export default function SettingsPage() {
       </header>
 
       <div className="cw-layout">
-        {/* Left nav */}
+        {/* Sidebar nav */}
         <nav className="cw-settings-nav">
           {groups.map((group) => (
             <div key={group}>
@@ -263,25 +335,42 @@ export default function SettingsPage() {
 
         {/* Content */}
         <div className="cw-content">
-          {saved && (
-            <div className="cw-success-toast cw-fade-up"><Check size={14} /> Settings saved successfully.</div>
+          {toast && (
+            <div className={`cw-toast ${toast.type} cw-fade-up`}>
+              {toast.type === "success" ? <Check size={14} /> : <span>⚠</span>}
+              {toast.msg}
+            </div>
+          )}
+
+          {loading && (
+            <div className="cw-fade-up" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div className="cw-skeleton" style={{ height: 24, width: 180 }} />
+              <div className="cw-skeleton" style={{ height: 160, borderRadius: 18 }} />
+              <div className="cw-skeleton" style={{ height: 120, borderRadius: 18 }} />
+            </div>
           )}
 
           {/* ── Appearance ── */}
-          {activeSection === "appearance" && (
+          {!loading && activeSection === "appearance" && (
             <div className="cw-fade-up">
               <div className="cw-section-title">Appearance</div>
-              <div className="cw-section-sub">Customize how CoWork.ai looks and feels.</div>
+              <div className="cw-section-sub">Changes apply instantly — save to persist across sessions.</div>
 
               <div className="cw-card">
-                <div className="cw-card-title"><div className="cw-card-icon"><Palette size={14} /></div>Theme</div>
+                <div className="cw-card-title">
+                  <div className="cw-card-icon"><Palette size={14} /></div>Theme
+                </div>
                 <div className="cw-theme-grid">
                   {[
-                    { id: "dark", label: "Dark", bg: "linear-gradient(135deg,#07071e,#1a1848)" },
-                    { id: "light", label: "Light", bg: "linear-gradient(135deg,#eef0fb,#fff)" },
+                    { id: "dark",   label: "Dark",   bg: "linear-gradient(135deg,#07071e,#1a1848)" },
+                    { id: "light",  label: "Light",  bg: "linear-gradient(135deg,#eef0fb,#fff)" },
                     { id: "system", label: "System", bg: "linear-gradient(135deg,#07071e 50%,#eef0fb 50%)" },
                   ].map((t) => (
-                    <div key={t.id} onClick={() => setTheme(t.id as typeof theme)} className={`cw-theme-option ${theme === t.id ? "selected" : ""}`}>
+                    <div
+                      key={t.id}
+                      onClick={() => setTheme(t.id as typeof theme)}
+                      className={`cw-theme-option ${theme === t.id ? "selected" : ""}`}
+                    >
                       <div className="cw-theme-preview" style={{ background: t.bg }} />
                       <div className="cw-theme-name">{t.label}</div>
                     </div>
@@ -290,7 +379,9 @@ export default function SettingsPage() {
               </div>
 
               <div className="cw-card">
-                <div className="cw-card-title"><div className="cw-card-icon"><Palette size={14} /></div>Accent Color</div>
+                <div className="cw-card-title">
+                  <div className="cw-card-icon"><Palette size={14} /></div>Accent Color
+                </div>
                 <div className="cw-color-grid">
                   {accentColors.map((color) => (
                     <div
@@ -303,149 +394,111 @@ export default function SettingsPage() {
                 </div>
               </div>
 
-              <div className="cw-card">
-                <div className="cw-card-title"><div className="cw-card-icon"><Settings size={14} /></div>Display</div>
-                <label className="cw-label">Font Size</label>
-                <select value={fontSize} onChange={(e) => setFontSize(e.target.value)} className="cw-select">
-                  <option value="13">Small (13px)</option>
-                  <option value="14">Default (14px)</option>
-                  <option value="15">Large (15px)</option>
-                  <option value="16">Extra Large (16px)</option>
-                </select>
-                <div className="cw-toggle-row" style={{ marginTop: 14 }}>
-                  <div>
-                    <div className="cw-toggle-label">Reduce Motion</div>
-                    <div className="cw-toggle-sub">Disable animations and transitions</div>
-                  </div>
-                  <div onClick={() => setReduceMotion(!reduceMotion)} className={`cw-toggle ${reduceMotion ? "on" : ""}`} />
-                </div>
-              </div>
-
-              <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                <button onClick={saveSettings} className="cw-btn-primary"><Save size={14} />Save Appearance</button>
-              </div>
+              <SaveBtn label="Save Appearance" />
             </div>
           )}
 
           {/* ── Notifications ── */}
-          {activeSection === "notifications" && (
+          {!loading && activeSection === "notifications" && (
             <div className="cw-fade-up">
               <div className="cw-section-title">Notifications</div>
-              <div className="cw-section-sub">Control what emails and alerts you receive.</div>
-              <div className="cw-card">
-                <div className="cw-card-title"><div className="cw-card-icon"><Bell size={14} /></div>Email Notifications</div>
-                {[
-                  { label: "Project invites", sub: "Get notified when someone invites you to a project", val: inviteNotifs, set: setInviteNotifs },
-                  { label: "All email notifications", sub: "Master toggle for all email alerts", val: emailNotifs, set: setEmailNotifs },
-                  { label: "Project updates", sub: "Receive updates when teammates edit shared projects", val: projectUpdates, set: setProjectUpdates },
-                  { label: "Weekly digest", sub: "A summary of your workspace activity every Monday", val: weeklyDigest, set: setWeeklyDigest },
-                ].map(({ label, sub, val, set }) => (
-                  <div key={label} className="cw-toggle-row">
-                    <div>
-                      <div className="cw-toggle-label">{label}</div>
-                      <div className="cw-toggle-sub">{sub}</div>
-                    </div>
-                    <div onClick={() => set(!val)} className={`cw-toggle ${val ? "on" : ""}`} />
-                  </div>
-                ))}
-              </div>
-              <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                <button onClick={saveSettings} className="cw-btn-primary"><Save size={14} />Save Notifications</button>
-              </div>
-            </div>
-          )}
+              <div className="cw-section-sub">Manage your email and digest preferences.</div>
 
-          {/* ── Workspace ── */}
-          {activeSection === "workspace" && (
-            <div className="cw-fade-up">
-              <div className="cw-section-title">Workspace</div>
-              <div className="cw-section-sub">Configure your default workspace behaviour.</div>
+              {/* Mandatory email notifications — locked */}
               <div className="cw-card">
-                <div className="cw-card-title"><div className="cw-card-icon"><Globe size={14} /></div>Defaults</div>
-                <label className="cw-label">Workspace Name</label>
-                <input className="cw-input" value={workspaceName} onChange={(e) => setWorkspaceName(e.target.value)} placeholder="My Workspace" />
-                <label className="cw-label">Default Chat Visibility</label>
-                <select value={defaultVisibility} onChange={(e) => setDefaultVisibility(e.target.value)} className="cw-select">
-                  <option value="public">Public — visible to all project members</option>
-                  <option value="private">Private — only you (Pro)</option>
-                </select>
-                <label className="cw-label">Default AI Role</label>
-                <select value={defaultRole} onChange={(e) => setDefaultRole(e.target.value)} className="cw-select">
-                  <option value="reasoning">Reasoning</option>
-                  <option value="research">Research</option>
-                  <option value="execution">Execution</option>
-                  <option value="reviewing">Reviewing</option>
-                  <option value="auto">Auto</option>
-                </select>
-              </div>
-              <div className="cw-card">
-                <div className="cw-card-title"><div className="cw-card-icon"><Settings size={14} /></div>Editor</div>
-                {[
-                  { label: "Auto-save drafts", sub: "Save unsent messages automatically", val: autoSave, set: setAutoSave },
-                  { label: "Send on Enter", sub: "Press Enter to send, Shift+Enter for new line", val: sendOnEnter, set: setSendOnEnter },
-                ].map(({ label, sub, val, set }) => (
-                  <div key={label} className="cw-toggle-row">
-                    <div>
-                      <div className="cw-toggle-label">{label}</div>
-                      <div className="cw-toggle-sub">{sub}</div>
-                    </div>
-                    <div onClick={() => set(!val)} className={`cw-toggle ${val ? "on" : ""}`} />
-                  </div>
-                ))}
-              </div>
-              <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                <button onClick={saveSettings} className="cw-btn-primary"><Save size={14} />Save Workspace</button>
-              </div>
-            </div>
-          )}
+                <div className="cw-card-title">
+                  <div className="cw-card-icon"><Bell size={14} /></div>Email Notifications
+                </div>
 
-          {/* ── Privacy ── */}
-          {activeSection === "privacy" && (
-            <div className="cw-fade-up">
-              <div className="cw-section-title">Privacy</div>
-              <div className="cw-section-sub">Control your data and visibility settings.</div>
-              <div className="cw-card">
-                <div className="cw-card-title"><div className="cw-card-icon"><Shield size={14} /></div>Data & Privacy</div>
-                {[
-                  { label: "Share anonymous usage data", sub: "Help improve CoWork.ai by sharing usage statistics", val: shareUsage, set: setShareUsage },
-                  { label: "Public profile", sub: "Allow others to see your name on shared projects", val: publicProfile, set: setPublicProfile },
-                ].map(({ label, sub, val, set }) => (
-                  <div key={label} className="cw-toggle-row">
-                    <div>
-                      <div className="cw-toggle-label">{label}</div>
-                      <div className="cw-toggle-sub">{sub}</div>
-                    </div>
-                    <div onClick={() => set(!val)} className={`cw-toggle ${val ? "on" : ""}`} />
+                <div className="cw-locked-row">
+                  <div>
+                    <div className="cw-toggle-label">All email notifications</div>
+                    <div className="cw-toggle-sub">Account alerts, security, and important updates</div>
                   </div>
-                ))}
+                  <span className="cw-badge-on">
+                    <Check size={10} /> Always On
+                  </span>
+                </div>
+
+                <div className="cw-locked-row">
+                  <div>
+                    <div className="cw-toggle-label">Project invites</div>
+                    <div className="cw-toggle-sub">Notified when someone invites you to a project</div>
+                  </div>
+                  <span className="cw-badge-on">
+                    <Check size={10} /> Always On
+                  </span>
+                </div>
+
+                <div className="cw-locked-row">
+                  <div>
+                    <div className="cw-toggle-label">Security alerts</div>
+                    <div className="cw-toggle-sub">Login activity and account protection notices</div>
+                  </div>
+                  <span className="cw-badge-on">
+                    <Check size={10} /> Always On
+                  </span>
+                </div>
+
+                <div className="cw-locked-note">
+                  <Lock size={13} style={{ flexShrink: 0, marginTop: 1, color: "var(--accent)" }} />
+                  <span>
+                    Email notifications are required for account security and cannot be disabled.
+                    They ensure you receive critical alerts, invites, and platform updates.
+                  </span>
+                </div>
               </div>
-              <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                <button onClick={saveSettings} className="cw-btn-primary"><Save size={14} />Save Privacy</button>
+
+              {/* Weekly digest — the one real DB toggle */}
+              <div className="cw-card">
+                <div className="cw-card-title">
+                  <div className="cw-card-icon"><Bell size={14} /></div>Weekly Digest
+                </div>
+                <div className="cw-toggle-row">
+                  <div>
+                    <div className="cw-toggle-label">Weekly activity digest</div>
+                    <div className="cw-toggle-sub">A summary of your workspace activity every Monday</div>
+                  </div>
+                  <div
+                    onClick={() => setWeeklyDigest(!weeklyDigest)}
+                    className={`cw-toggle ${weeklyDigest ? "on" : ""}`}
+                  />
+                </div>
               </div>
+
+              <SaveBtn label="Save Notifications" />
             </div>
           )}
 
           {/* ── Integrations ── */}
-          {activeSection === "integrations" && (
+          {!loading && activeSection === "integrations" && (
             <div className="cw-fade-up">
               <div className="cw-section-title">Integrations</div>
               <div className="cw-section-sub">Manage connected services and API providers.</div>
               <div className="cw-card">
-                <div className="cw-card-title"><div className="cw-card-icon"><Zap size={14} /></div>API Providers</div>
+                <div className="cw-card-title">
+                  <div className="cw-card-icon"><Zap size={14} /></div>API Providers
+                </div>
                 <div style={{ fontSize: 13, color: "var(--t2)", marginBottom: 14 }}>
                   Connect your API keys to unlock model providers. Manage them in the API Manager.
                 </div>
-                <button onClick={() => router.push("/api-manager")} className="cw-btn-primary"><Zap size={14} />Open API Manager</button>
+                <button onClick={() => router.push("/api-manager")} className="cw-btn-primary">
+                  <Zap size={14} />Open API Manager
+                </button>
               </div>
               <div className="cw-card">
-                <div className="cw-card-title"><div className="cw-card-icon"><Globe size={14} /></div>Coming Soon</div>
+                <div className="cw-card-title">
+                  <div className="cw-card-icon"><Globe size={14} /></div>Coming Soon
+                </div>
                 {["Slack notifications", "GitHub integration", "Notion export", "Zapier webhook"].map((item) => (
                   <div key={item} className="cw-toggle-row">
                     <div>
                       <div className="cw-toggle-label">{item}</div>
                       <div className="cw-toggle-sub">Coming in a future update</div>
                     </div>
-                    <div style={{ fontSize: 11, color: "var(--tm)", padding: "3px 9px", border: "1px solid var(--b-soft)", borderRadius: 99 }}>Soon</div>
+                    <div style={{ fontSize: 11, color: "var(--tm)", padding: "3px 9px", border: "1px solid var(--b-soft)", borderRadius: 99 }}>
+                      Soon
+                    </div>
                   </div>
                 ))}
               </div>

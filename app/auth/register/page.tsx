@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import type React from "react";
 import { useRouter } from "next/navigation";
 
 const TOTAL_STEPS = 3;
@@ -211,6 +212,7 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
 
   const [form, setForm] = useState<FormData>({
     name: "", email: "", password: "",
@@ -239,6 +241,21 @@ export default function RegisterPage() {
       .then((res) => { if (res.ok) router.replace("/dashboard"); })
       .finally(() => setChecking(false));
   }, [router]);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      setMousePosition({
+        x: e.clientX,
+        y: e.clientY,
+      });
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+    };
+  }, []);
 
   // Auto-set dial code when country changes
   useEffect(() => {
@@ -336,9 +353,66 @@ export default function RegisterPage() {
     sublabel: c.name,
   }));
 
+  // ── Particle keyframe styles ─────────────────────────────────────────────────
+  const particleStyles = `
+    @keyframes floatParticle {
+      0%   { transform: translateY(0px) translateX(0px); opacity: 0; }
+      10%  { opacity: 1; }
+      90%  { opacity: 1; }
+      100% { transform: translateY(-120vh) translateX(40px); opacity: 0; }
+    }
+    .animate-floatParticle {
+      animation-name: floatParticle;
+      animation-timing-function: linear;
+      animation-iteration-count: infinite;
+    }
+  `;
+
   return (
     <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#020617] px-4 text-white">
+      <style>{particleStyles}</style>
+
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_10%,rgba(79,70,229,0.26),transparent_32%),radial-gradient(circle_at_80%_20%,rgba(14,165,233,0.14),transparent_30%),linear-gradient(180deg,#020617_0%,#050816_46%,#020617_100%)]" />
+
+      {/* Interactive cursor lighting */}
+      <div
+        className="pointer-events-none absolute inset-0 z-0 transition duration-300"
+        style={{
+          background: `radial-gradient(
+            600px circle at ${mousePosition.x}px ${mousePosition.y}px,
+            rgba(99,102,241,0.16),
+            transparent 40%
+          )`,
+        }}
+      />
+
+      {/* Depth particles */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        {[...Array(28)].map((_, i) => {
+          const size = Math.random() * 6 + 2;
+          const left = Math.random() * 100;
+          const delay = Math.random() * 20;
+          const duration = Math.random() * 20 + 25;
+          const opacity = Math.random() * 0.35 + 0.08;
+
+          return (
+            <span
+              key={i}
+              className="absolute rounded-full bg-indigo-300/40 blur-[1px] animate-floatParticle"
+              style={{
+                width: `${size}px`,
+                height: `${size}px`,
+                left: `${left}%`,
+                top: `${Math.random() * 100}%`,
+                opacity,
+                animationDelay: `${delay}s`,
+                animationDuration: `${duration}s`,
+              }}
+            />
+          );
+        })}
+      </div>
+
       <div className="pointer-events-none absolute inset-0 opacity-[0.16] [background-image:linear-gradient(rgba(255,255,255,0.07)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.07)_1px,transparent_1px)] [background-size:56px_56px] [mask-image:linear-gradient(to_bottom,black,transparent_85%)]" />
 
       <section className="relative z-10 grid w-full max-w-5xl overflow-hidden rounded-3xl border border-white/10 bg-white/[0.035] shadow-2xl backdrop-blur-xl md:grid-cols-[1fr_0.9fr]">

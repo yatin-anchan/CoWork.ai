@@ -1,14 +1,140 @@
 import nodemailer from "nodemailer";
 
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.GMAIL_USER,
-    pass: process.env.GMAIL_APP_PASSWORD,
-  },
-});
+// ── Provider send abstraction ─────────────────────────────────────────────────
 
-const FROM = `"CoWork AI" <${process.env.GMAIL_USER}>`;
+async function sendViaResend(payload: {
+  to: string;
+  from: string;
+  subject: string;
+  html: string;
+}): Promise<void> {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) throw new Error("RESEND_API_KEY not set");
+
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: payload.from,
+      to: payload.to,
+      subject: payload.subject,
+      html: payload.html,
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Resend error ${res.status}: ${err}`);
+  }
+}
+
+async function sendViaGmail(payload: {
+  to: string;
+  from: string;
+  subject: string;
+  html: string;
+}): Promise<void> {
+  const user = process.env.GMAIL_USER;
+  const pass = process.env.GMAIL_APP_PASSWORD;
+  if (!user || !pass) throw new Error("GMAIL_USER or GMAIL_APP_PASSWORD not set");
+
+  const transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: { user, pass },
+  });
+
+  await transporter.sendMail({
+    from: payload.from,
+    to: payload.to,
+    subject: payload.subject,
+    html: payload.html,
+  });
+}
+
+async function sendViaBrevo(payload: {
+  to: string;
+  fromName: string;
+  subject: string;
+  html: string;
+}): Promise<void> {
+  const apiKey = process.env.BREVO_API_KEY;
+  if (!apiKey) throw new Error("BREVO_API_KEY not set");
+
+  const res = await fetch("https://api.brevo.com/v3/smtp/email", {
+    method: "POST",
+    headers: {
+      "api-key": apiKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      sender: { name: payload.fromName, email: process.env.BREVO_FROM_EMAIL || "noreply@coworkai.com" },
+      to: [{ email: payload.to }],
+      subject: payload.subject,
+      htmlContent: payload.html,
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Brevo error ${res.status}: ${err}`);
+  }
+}
+
+// ── Fallback chain ────────────────────────────────────────────────────────────
+// Tries Resend → Gmail → Brevo in order. Throws only if all three fail.
+
+async function sendEmail({
+  to,
+  subject,
+  html,
+  fromName = "CoWork AI",
+}: {
+  to: string;
+  subject: string;
+  html: string;
+  fromName?: string;
+}) {
+  const from = `"${fromName}" <${process.env.RESEND_FROM_EMAIL || "no-reply-cowork-ai@resend.dev"}>`;
+  const gmailFrom = `"${fromName}" <${process.env.GMAIL_USER}>`;
+
+  const providers: Array<{ name: string; fn: () => Promise<void> }> = [
+    {
+      name: "Resend",
+      fn: () => sendViaResend({ to, from, subject, html }),
+    },
+    {
+      name: "Gmail",
+      fn: () => sendViaGmail({ to, from: gmailFrom, subject, html }),
+    },
+    {
+      name: "Brevo",
+      fn: () => sendViaBrevo({ to, fromName, subject, html }),
+    },
+  ];
+
+  const errors: string[] = [];
+
+  for (const provider of providers) {
+    try {
+      await provider.fn();
+      console.log(`[email] Sent via ${provider.name} to ${to}`);
+      return; // success — stop here
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[email] ${provider.name} failed: ${msg}`);
+      errors.push(`${provider.name}: ${msg}`);
+    }
+  }
+
+  // All three failed
+  throw new Error(`[email] All providers failed:\n${errors.join("\n")}`);
+}
+
+// ── Base HTML template ────────────────────────────────────────────────────────
+
 const APP_URL = process.env.APP_URL || "http://localhost:3000";
 
 const baseTemplate = (content: string) => `
@@ -83,15 +209,9 @@ const baseTemplate = (content: string) => `
   </html>
 `;
 
-// ── Welcome Email ────────────────────────────────────────────────────────────
+// ── Welcome Email ─────────────────────────────────────────────────────────────
 
-export async function sendWelcomeEmail({
-  to,
-  name,
-}: {
-  to: string;
-  name: string;
-}) {
+export async function sendWelcomeEmail({ to, name }: { to: string; name: string }) {
   const onboardingUrl = `${APP_URL}/onboarding`;
 
   const content = `
@@ -118,16 +238,10 @@ export async function sendWelcomeEmail({
       <tr>
         <td align="center" style="padding-bottom:28px;">
           <a href="${onboardingUrl}" style="
-            display:inline-block;
-            padding:14px 32px;
-            border-radius:12px;
-            background:linear-gradient(135deg,#4f46e5,#7c3aed);
-            color:#fff;
-            font-size:15px;
-            font-weight:800;
-            text-decoration:none;
-            letter-spacing:-0.01em;
-            box-shadow:0 12px 36px rgba(79,70,229,0.35);
+            display:inline-block; padding:14px 32px; border-radius:12px;
+            background:linear-gradient(135deg,#4f46e5,#7c3aed); color:#fff;
+            font-size:15px; font-weight:800; text-decoration:none;
+            letter-spacing:-0.01em; box-shadow:0 12px 36px rgba(79,70,229,0.35);
           ">Set up your workspace →</a>
         </td>
       </tr>
@@ -160,15 +274,10 @@ export async function sendWelcomeEmail({
     </p>
   `;
 
-  await transporter.sendMail({
-    from: FROM,
-    to,
-    subject: `Welcome to CoWork AI, ${name}! 🎉`,
-    html: baseTemplate(content),
-  });
+  await sendEmail({ to, subject: `Welcome to CoWork AI, ${name}! 🎉`, html: baseTemplate(content) });
 }
 
-// ── Invite Email ─────────────────────────────────────────────────────────────
+// ── Invite Email ──────────────────────────────────────────────────────────────
 
 export async function sendInviteEmail({
   to,
@@ -236,15 +345,10 @@ export async function sendInviteEmail({
     </p>
   `;
 
-  await transporter.sendMail({
-    from: FROM,
-    to,
-    subject: `You've been invited to join ${projectName} on CoWork AI`,
-    html: baseTemplate(content),
-  });
+  await sendEmail({ to, subject: `You've been invited to join ${projectName} on CoWork AI`, html: baseTemplate(content) });
 }
 
-// ── Password Reset Email ─────────────────────────────────────────────────────
+// ── Password Reset Email ──────────────────────────────────────────────────────
 
 export async function sendPasswordResetEmail({
   to,
@@ -255,12 +359,6 @@ export async function sendPasswordResetEmail({
   name: string;
   resetLink: string;
 }) {
-  if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
-    console.warn("[email] Gmail credentials missing. Skipping password reset email.");
-    console.log(`RESET LINK: ${resetLink}`);
-    return;
-  }
-
   const content = `
     <p style="margin:0 0 22px; text-align:center;">
       <span style="
@@ -310,10 +408,5 @@ export async function sendPasswordResetEmail({
     </p>
   `;
 
-  await transporter.sendMail({
-    from: FROM,
-    to,
-    subject: "Reset your CoWork AI password",
-    html: baseTemplate(content),
-  });
+  await sendEmail({ to, subject: "Reset your CoWork AI password", html: baseTemplate(content) });
 }
